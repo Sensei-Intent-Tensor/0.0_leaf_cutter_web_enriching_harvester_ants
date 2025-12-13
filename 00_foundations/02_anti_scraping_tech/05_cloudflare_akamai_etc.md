@@ -1,627 +1,880 @@
-# Cloudflare, Akamai & Other WAFs
+# Cloudflare, Akamai & Enterprise Protection Services
 
-> **The Gatekeepers of the Modern Web**
+> **Understanding the Gatekeepers of the Modern Web**
 
-Web Application Firewalls (WAFs) and Content Delivery Networks (CDNs) with bot protection are the most common barriers you'll encounter. Understanding how they work is essential for any serious scraping project.
+The majority of high-value websites use enterprise anti-bot services. This document covers the major players, how they work, and strategies for working with (not against) them.
 
 ---
 
-## The Landscape
-
-### Market Share of Bot Protection
+## The Protection Landscape
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  Cloudflare     ████████████████████████████  ~40%     │
-│  Akamai         ██████████████                ~20%     │
-│  AWS WAF        ████████                      ~12%     │
-│  Imperva        ██████                        ~10%     │
-│  Fastly         ████                          ~6%      │
-│  PerimeterX     ███                           ~5%      │
-│  DataDome       ██                            ~3%      │
-│  Others         ██                            ~4%      │
-└─────────────────────────────────────────────────────────┘
+Website Protection Tiers:
+
+Tier 1: No Protection
+├── Direct access
+├── Basic rate limiting maybe
+└── Easy to scrape
+
+Tier 2: Basic CDN Protection
+├── Cloudflare Free/Pro
+├── Basic WAF rules
+└── Moderate difficulty
+
+Tier 3: Advanced Bot Management
+├── Cloudflare Bot Management
+├── Akamai Bot Manager
+├── PerimeterX / HUMAN
+└── High difficulty
+
+Tier 4: Enterprise Custom
+├── Multiple layers
+├── Custom ML models
+├── Legal team backup
+└── Extreme difficulty
 ```
 
 ---
 
 ## 1. Cloudflare
 
-### What Cloudflare Does
-
-Cloudflare sits between users and websites:
+### 1.1 Cloudflare Protection Tiers
 
 ```
-User Request ──▶ Cloudflare ──▶ Origin Server
-                    │
-                    ├── DDoS Protection
-                    ├── Bot Detection
-                    ├── JavaScript Challenges
-                    ├── CAPTCHA (Turnstile)
-                    └── Rate Limiting
+Cloudflare Product Hierarchy:
+
+Free Plan:
+├── Basic DDoS protection
+├── Simple WAF rules
+├── Browser Integrity Check
+└── Can be bypassed easily
+
+Pro Plan ($20/month):
+├── Advanced WAF
+├── More rule customization
+├── Challenge pages
+└── Moderate protection
+
+Business Plan ($200/month):
+├── Rate limiting
+├── Bot scores
+├── Custom rules
+└── Stronger protection
+
+Enterprise:
+├── Bot Management ($$$)
+├── ML-based detection
+├── Behavioral analysis
+└── Most difficult to bypass
 ```
 
-### Detection Levels
-
-| Level | Name | Protection |
-|-------|------|------------|
-| **Off** | Essentially Off | Minimal |
-| **Low** | Low | Basic bot blocking |
-| **Medium** | Medium | JS challenges for suspicious |
-| **High** | High | JS challenges for most |
-| **I'm Under Attack** | Maximum | Challenge everyone |
-
-### Cloudflare Challenges
-
-#### JavaScript Challenge
+### 1.2 How Cloudflare Works
 
 ```
-1. Initial request arrives
-2. Cloudflare returns JS challenge page
-3. Browser executes JavaScript
-4. JavaScript computes proof-of-work
-5. Browser submits solution
-6. Cloudflare sets cf_clearance cookie
-7. Subsequent requests pass with cookie
+Request Flow:
+
+User/Bot                    Cloudflare Edge              Origin Server
+    │                            │                            │
+    │  1. Request                │                            │
+    │ ─────────────────────────▶ │                            │
+    │                            │                            │
+    │                      ┌─────┴─────┐                      │
+    │                      │ Analysis  │                      │
+    │                      │ • IP rep  │                      │
+    │                      │ • Headers │                      │
+    │                      │ • JS check│                      │
+    │                      │ • Behavior│                      │
+    │                      └─────┬─────┘                      │
+    │                            │                            │
+    │  2a. Pass ─────────────────┼────────────────────────▶   │
+    │                            │                            │
+    │  2b. Challenge             │                            │
+    │ ◀───────────────────────── │                            │
+    │                            │                            │
+    │  2c. Block (403)           │                            │
+    │ ◀───────────────────────── │                            │
 ```
 
-**The Challenge Page:**
+### 1.3 Cloudflare Challenge Types
+
+#### JavaScript Challenge (5-Second Page)
+
 ```html
+<!-- What you see -->
 <!DOCTYPE html>
 <html>
 <head>
     <title>Just a moment...</title>
 </head>
 <body>
-    <div id="challenge-running">
-        Checking your browser...
+    <div class="main-wrapper">
+        <h1>Checking your browser before accessing example.com</h1>
+        <p>This process is automatic. Your browser will redirect shortly.</p>
+        <div id="challenge-running">Please wait...</div>
     </div>
-    <script src="/cdn-cgi/challenge-platform/scripts/..."></script>
+    <script>
+        // Obfuscated JavaScript challenge
+        // Must execute to get __cf_bm cookie
+    </script>
 </body>
 </html>
 ```
 
-#### Turnstile (CAPTCHA Alternative)
+#### Managed Challenge (Turnstile)
 
-Cloudflare's privacy-focused CAPTCHA:
-- Usually invisible
-- No image puzzles
-- Behavioral analysis
-- Falls back to visible challenge if suspicious
+```html
+<!-- Cloudflare Turnstile widget -->
+<div class="cf-turnstile" data-sitekey="0x4AAAAAAAA..."></div>
 
-### Cloudflare Cookies
+<!-- Results in a token that must be submitted -->
+```
+
+#### Interactive Challenge (CAPTCHA)
+
+Only shown when suspicion is high—requires human interaction.
+
+### 1.4 Cloudflare Cookies
 
 | Cookie | Purpose | Lifetime |
 |--------|---------|----------|
-| `__cf_bm` | Bot management | 30 min |
-| `cf_clearance` | Challenge passed | Hours/days |
+| `__cf_bm` | Bot management | 30 minutes |
+| `cf_clearance` | Challenge passed | Variable |
 | `__cflb` | Load balancing | Session |
 | `__cfruid` | Rate limiting | Session |
 
-### Bypassing Cloudflare
+### 1.5 Bypassing Cloudflare
 
-#### Method 1: Undetected ChromeDriver
+#### Method 1: Unflared (Bypass via Origin)
 
-```python
-import undetected_chromedriver as uc
-
-driver = uc.Chrome(headless=True, version_main=120)
-driver.get("https://cloudflare-protected.com")
-
-# Wait for challenge to complete
-import time
-time.sleep(10)
-
-# Get cookies for requests
-cookies = driver.get_cookies()
-cf_clearance = next(c for c in cookies if c['name'] == 'cf_clearance')
-```
-
-#### Method 2: cloudscraper
+Sometimes the origin server is accessible directly:
 
 ```python
-import cloudscraper
+import dns.resolver
 
-scraper = cloudscraper.create_scraper(
-    browser={
-        'browser': 'chrome',
-        'platform': 'windows',
-        'desktop': True
-    }
-)
+def find_origin_ip(domain):
+    """Try to find origin server IP."""
+    
+    # Check historical DNS records
+    # Check SSL certificates
+    # Check related subdomains
+    
+    subdomains = ['mail', 'ftp', 'direct', 'origin', 'www2']
+    
+    for sub in subdomains:
+        try:
+            answers = dns.resolver.resolve(f"{sub}.{domain}", 'A')
+            for answer in answers:
+                ip = str(answer)
+                # Check if this IP is NOT Cloudflare
+                # Cloudflare IPs: 104.16.0.0/12, 172.64.0.0/13, etc.
+                if not is_cloudflare_ip(ip):
+                    return ip
+        except:
+            continue
+    
+    return None
 
-response = scraper.get("https://cloudflare-protected.com")
-print(response.text)
+# If origin found, request directly
+origin_ip = find_origin_ip("example.com")
+if origin_ip:
+    response = requests.get(
+        f"http://{origin_ip}/page",
+        headers={"Host": "example.com"}
+    )
 ```
 
-#### Method 3: FlareSolverr (Proxy Service)
+**Note**: This is increasingly rare as most sites properly configure Cloudflare to block non-Cloudflare requests.
+
+#### Method 2: FlareSolverr
+
+Docker-based Cloudflare bypass:
 
 ```python
 import requests
 
-# FlareSolverr running as service
-response = requests.post(
-    "http://localhost:8191/v1",
-    json={
+FLARESOLVERR_URL = "http://localhost:8191/v1"
+
+def solve_cloudflare(url):
+    payload = {
         "cmd": "request.get",
-        "url": "https://cloudflare-protected.com",
+        "url": url,
         "maxTimeout": 60000
     }
-)
+    
+    response = requests.post(FLARESOLVERR_URL, json=payload)
+    result = response.json()
+    
+    if result["status"] == "ok":
+        return {
+            "html": result["solution"]["response"],
+            "cookies": result["solution"]["cookies"],
+            "user_agent": result["solution"]["userAgent"]
+        }
+    else:
+        raise Exception(f"FlareSolverr failed: {result}")
 
-data = response.json()
-html = data['solution']['response']
-cookies = data['solution']['cookies']
+# Usage
+solution = solve_cloudflare("https://cloudflare-protected-site.com")
+print(solution["html"])
 ```
 
-#### Method 4: Real Browser Session
+#### Method 3: Browser Automation with Stealth
 
 ```python
 from playwright.sync_api import sync_playwright
-import pickle
+from playwright_stealth import stealth_sync
+import time
 
-def get_cloudflare_cookies(url):
+def bypass_cloudflare(url):
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)  # Must be visible
-        page = browser.new_page()
+        browser = p.chromium.launch(headless=False)  # Visible helps
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+            viewport={"width": 1920, "height": 1080}
+        )
         
+        page = context.new_page()
+        stealth_sync(page)
+        
+        # Go to page
         page.goto(url)
         
-        # Wait for challenge
-        page.wait_for_timeout(15000)
+        # Wait for Cloudflare challenge to complete
+        for _ in range(30):
+            if "Just a moment" not in page.content():
+                break
+            time.sleep(1)
         
-        # Check if we passed
-        if "cf_clearance" in str(page.context.cookies()):
-            cookies = page.context.cookies()
-            browser.close()
-            return cookies
+        # Extra wait for any redirects
+        page.wait_for_load_state("networkidle")
         
+        # Get cookies for future requests
+        cookies = context.cookies()
+        cf_clearance = next(
+            (c for c in cookies if c["name"] == "cf_clearance"),
+            None
+        )
+        
+        html = page.content()
         browser.close()
-        return None
+        
+        return html, cookies
+
+# Use obtained cookies with requests
+html, cookies = bypass_cloudflare("https://protected-site.com")
+
+# Convert to requests format
+session = requests.Session()
+for cookie in cookies:
+    session.cookies.set(cookie["name"], cookie["value"], domain=cookie["domain"])
 ```
 
-### Cloudflare Detection Signatures
+#### Method 4: Residential Proxies
+
+Cloudflare is more lenient with residential IPs:
 
 ```python
-def is_cloudflare_protected(response):
-    """Detect if response is Cloudflare challenge."""
+proxy = "http://user:pass@residential-proxy.com:8080"
+
+response = requests.get(
+    url,
+    proxies={"http": proxy, "https": proxy},
+    headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)...",
+        # Include other realistic headers
+    }
+)
+```
+
+### 1.6 Cloudflare Detection Signals
+
+```python
+def detect_cloudflare(response):
+    """Detect if site is behind Cloudflare."""
     
-    indicators = [
-        response.status_code == 403 and 'cloudflare' in response.text.lower(),
-        response.status_code == 503 and 'cloudflare' in response.text.lower(),
-        'cf-ray' in response.headers,
-        'cf-cache-status' in response.headers,
-        '__cf_bm' in response.cookies,
-        'checking your browser' in response.text.lower(),
-        'cdn-cgi/challenge-platform' in response.text,
-    ]
+    signals = {
+        "cf_ray_header": "CF-RAY" in response.headers,
+        "cf_cache_status": "CF-Cache-Status" in response.headers,
+        "server_cloudflare": response.headers.get("Server") == "cloudflare",
+        "challenge_page": "Just a moment" in response.text,
+        "turnstile": "challenges.cloudflare.com" in response.text,
+        "cf_error": "__cf_chl_opt" in response.text,
+    }
     
-    return any(indicators)
+    return {
+        "is_cloudflare": any(signals.values()),
+        "signals": signals
+    }
 ```
 
 ---
 
-## 2. Akamai Bot Manager
+## 2. Akamai
 
-### How Akamai Works
-
-Akamai uses advanced fingerprinting and behavioral analysis:
+### 2.1 Akamai Bot Manager
 
 ```
-Request ──▶ Akamai Edge Server
-                │
-                ├── Sensor Data Collection
-                │   ├── Browser fingerprint
-                │   ├── Mouse movements
-                │   ├── Keyboard patterns
-                │   └── Device signals
-                │
-                ├── Risk Scoring
-                │   └── Machine learning model
-                │
-                └── Action
-                    ├── Allow
-                    ├── Challenge
-                    └── Block
+Akamai Detection Layers:
+
+Layer 1: Edge Detection
+├── IP reputation
+├── Request rate
+├── Geographic anomalies
+└── Known bot signatures
+
+Layer 2: Client-Side Analysis
+├── JavaScript execution
+├── Browser fingerprinting
+├── Cookie generation
+└── Sensor data collection
+
+Layer 3: Behavioral Analysis
+├── Navigation patterns
+├── Session behavior
+├── Anomaly detection
+└── ML classification
 ```
 
-### Akamai Sensor Script
+### 2.2 Akamai Sensor Data
 
-Akamai injects a sensor script that collects:
+Akamai collects extensive client data via JavaScript:
 
 ```javascript
-// Simplified - actual script is obfuscated
+// Simplified example of what Akamai collects
 const sensorData = {
-    // Device
-    userAgent: navigator.userAgent,
-    screen: [screen.width, screen.height],
+    // Device fingerprint
+    screen: `${screen.width}x${screen.height}`,
     colorDepth: screen.colorDepth,
     timezone: new Date().getTimezoneOffset(),
     
-    // Browser
-    plugins: getPluginList(),
-    canvas: getCanvasFingerprint(),
-    webgl: getWebGLFingerprint(),
+    // Browser fingerprint
+    userAgent: navigator.userAgent,
+    language: navigator.language,
+    platform: navigator.platform,
+    plugins: Array.from(navigator.plugins).map(p => p.name),
     
-    // Behavior
-    mouseMovements: [],
-    keyPresses: [],
-    touchEvents: [],
-    scrollEvents: [],
+    // Interaction data
+    mouseMovements: [...],  // All mouse events
+    keystrokes: [...],       // Timing data
+    touchEvents: [...],      // Mobile interactions
+    scrollEvents: [...],     // Scroll patterns
     
     // Timing
-    pageLoadTime: performance.now(),
-    interactionTimes: [],
+    loadTime: performance.timing.loadEventEnd - performance.timing.navigationStart,
+    
+    // Canvas/WebGL fingerprint
+    canvasHash: "...",
+    webglRenderer: "...",
 };
+
+// This data is encrypted and sent as a cookie or POST parameter
+// Often named "_abck" or "bm_sz"
 ```
 
-### Akamai Cookies
+### 2.3 Akamai Cookies
 
 | Cookie | Purpose |
 |--------|---------|
-| `_abck` | Bot management token |
-| `bm_sz` | Bot manager session |
-| `ak_bmsc` | Session identifier |
-| `bm_sv` | Sensor validation |
+| `_abck` | Main bot detection cookie (encrypted sensor data) |
+| `bm_sz` | Bot manager size/session |
+| `bm_sv` | Bot manager session validation |
+| `ak_bmsc` | Bot manager session cookie |
+| `bm_mi` | Bot manager market intelligence |
 
-### Bypassing Akamai
+### 2.4 Bypassing Akamai
 
-#### The Challenge
+Akamai is significantly harder than Cloudflare:
 
-Akamai is significantly harder than Cloudflare because:
-- Sensor data must be generated correctly
-- Behavioral patterns are analyzed
-- Fingerprints must be consistent
-- Cookie generation is complex
-
-#### Method 1: Full Browser Automation
+#### Approach 1: Full Browser Automation
 
 ```python
 from playwright.sync_api import sync_playwright
+import time
 
-def scrape_akamai_protected(url):
+def bypass_akamai(url):
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=False,  # Akamai often detects headless
-            args=['--disable-blink-features=AutomationControlled']
-        )
+        # Must use non-headless for Akamai
+        browser = p.chromium.launch(headless=False)
         
         context = browser.new_context(
-            viewport={'width': 1920, 'height': 1080},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            viewport={"width": 1920, "height": 1080},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         )
         
         page = context.new_page()
         
-        # Add human-like behavior
+        # Add extensive stealth
+        page.add_init_script("""
+            // Remove automation indicators
+            Object.defineProperty(navigator, 'webdriver', {get: () => false});
+            
+            // Add chrome object
+            window.chrome = { runtime: {} };
+            
+            // Fix plugins
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+        """)
+        
         page.goto(url)
         
-        # Simulate mouse movements
-        page.mouse.move(100, 100)
-        page.wait_for_timeout(500)
-        page.mouse.move(300, 200)
-        page.wait_for_timeout(500)
+        # Simulate human behavior to generate valid sensor data
+        simulate_human_behavior(page)
         
-        # Scroll naturally
-        page.evaluate('window.scrollTo(0, 300)')
-        page.wait_for_timeout(1000)
+        # Wait for Akamai to validate
+        time.sleep(5)
         
-        content = page.content()
-        browser.close()
-        return content
+        # Check for valid _abck cookie
+        cookies = context.cookies()
+        abck = next((c for c in cookies if c["name"] == "_abck"), None)
+        
+        if abck and is_valid_abck(abck["value"]):
+            return page.content(), cookies
+        else:
+            raise Exception("Failed to bypass Akamai")
+
+def simulate_human_behavior(page):
+    """Generate sensor data that looks human."""
+    
+    # Mouse movements
+    for _ in range(20):
+        x = random.randint(100, 1800)
+        y = random.randint(100, 900)
+        page.mouse.move(x, y)
+        time.sleep(random.uniform(0.05, 0.15))
+    
+    # Scroll
+    page.mouse.wheel(0, random.randint(100, 500))
+    time.sleep(random.uniform(0.5, 1))
+    
+    # Click somewhere safe
+    page.mouse.click(500, 500)
 ```
 
-#### Method 2: Akamai Solver Services
+#### Approach 2: Specialized Services
 
-Commercial services that handle Akamai:
-- **Capsolver** - API for Akamai tokens
-- **Bright Data** - Proxy network with unblocking
+Some services specialize in Akamai bypass:
 
 ```python
-# Using a solving service (example)
-def get_akamai_token(url):
-    response = requests.post(
-        "https://api.capsolver.com/createTask",
-        json={
-            "clientKey": "YOUR_KEY",
-            "task": {
-                "type": "AntiAkamaiTask",
-                "websiteURL": url
-            }
-        }
-    )
-    # ... poll for result
+# Using a specialized API service
+response = requests.post("https://bypass-service.com/api/akamai", json={
+    "url": "https://akamai-protected-site.com/page",
+    "session_id": "your_session"
+})
+
+result = response.json()
+cookies = result["cookies"]  # Valid _abck cookie
 ```
 
 ---
 
 ## 3. PerimeterX (HUMAN)
 
-### How PerimeterX Works
-
-PerimeterX (now HUMAN) uses behavioral biometrics:
+### 3.1 PerimeterX Detection
 
 ```
-┌─────────────────────────────────────────┐
-│         PerimeterX Detection            │
-├─────────────────────────────────────────┤
-│  Signal Collection                      │
-│  ├── Device fingerprint                 │
-│  ├── Network characteristics            │
-│  ├── Mouse dynamics                     │
-│  ├── Touch patterns                     │
-│  └── Sensor timing                      │
-├─────────────────────────────────────────┤
-│  Machine Learning Analysis              │
-│  └── Compare to known bot patterns      │
-├─────────────────────────────────────────┤
-│  Risk Score: 0-100                      │
-│  └── Action based on threshold          │
-└─────────────────────────────────────────┘
+PerimeterX Layers:
+
+1. Request Analysis
+   ├── Headers validation
+   ├── TLS fingerprint
+   └── IP reputation
+
+2. Browser Fingerprinting
+   ├── Canvas fingerprint
+   ├── WebGL fingerprint
+   ├── Audio fingerprint
+   └── Font enumeration
+
+3. Behavioral Analysis
+   ├── Mouse dynamics
+   ├── Keyboard patterns
+   ├── Touch gestures
+   └── Scroll behavior
+
+4. Network Analysis
+   ├── Request timing
+   ├── Resource loading
+   └── Connection patterns
 ```
 
-### PerimeterX Cookies
+### 3.2 PerimeterX Cookies
 
 | Cookie | Purpose |
 |--------|---------|
-| `_px3` | Primary token |
+| `_px3` | Main detection cookie |
 | `_pxvid` | Visitor ID |
-| `_pxde` | Data envelope |
-| `_pxhd` | Header data |
+| `_pxff_*` | Feature flags |
+| `_pxhd` | Detection data |
 
-### Detection Signs
+### 3.3 PerimeterX Challenge
 
-```python
-def is_perimeterx_protected(response):
-    indicators = [
-        '_px' in str(response.cookies),
-        'perimeterx' in response.text.lower(),
-        'human-challenge' in response.text.lower(),
-        'px-captcha' in response.text,
-        response.status_code == 403 and 'blocked' in response.text.lower(),
-    ]
-    return any(indicators)
+```html
+<!-- PerimeterX block page -->
+<html>
+<head>
+    <title>Access Denied</title>
+</head>
+<body>
+    <div id="px-captcha">
+        <!-- Press and hold CAPTCHA -->
+    </div>
+    <script src="//captcha.px-cdn.net/..."></script>
+</body>
+</html>
 ```
+
+The "press and hold" CAPTCHA is unique to PerimeterX and requires sustained mouse pressure.
 
 ---
 
 ## 4. DataDome
 
-### How DataDome Works
+### 4.1 DataDome Detection
 
-DataDome focuses on real-time bot detection:
+DataDome focuses heavily on:
+- Device fingerprinting
+- Behavioral analysis
+- ML-based classification
 
-```
-Request ──▶ DataDome Edge
-                │
-                ├── Real-time ML scoring
-                ├── Fingerprint analysis
-                ├── Behavioral patterns
-                └── IP reputation
-                    │
-                    ▼
-            ┌───────────────┐
-            │   Decision    │
-            ├───────────────┤
-            │ Allow         │
-            │ Challenge     │
-            │ CAPTCHA       │
-            │ Block         │
-            └───────────────┘
-```
-
-### DataDome Cookies
+### 4.2 DataDome Cookies
 
 | Cookie | Purpose |
 |--------|---------|
-| `datadome` | Primary session token |
+| `datadome` | Main session cookie |
+| `dd_*` | Various tracking cookies |
 
-### DataDome Challenge
-
-```html
-<!-- DataDome CAPTCHA page -->
-<div id="datadome-captcha">
-    <iframe src="https://geo.captcha-delivery.com/..."></iframe>
-</div>
-```
-
----
-
-## 5. Imperva (Incapsula)
-
-### How Imperva Works
-
-Imperva uses multiple detection layers:
+### 4.3 DataDome Response
 
 ```
-Layer 1: IP Reputation
-├── Known bad IPs
-├── Datacenter detection
-└── Geographic anomalies
+HTTP/1.1 403 Forbidden
+X-DataDome: blocked
+X-DataDome-Cid: ...
 
-Layer 2: Browser Validation
-├── JavaScript challenge
-├── Cookie validation
-└── Fingerprinting
-
-Layer 3: Behavioral Analysis
-├── Request patterns
-├── Session analysis
-└── ML classification
-```
-
-### Imperva Cookies
-
-| Cookie | Purpose |
-|--------|---------|
-| `incap_ses_*` | Session |
-| `visid_incap_*` | Visitor ID |
-| `___utmvc` | Validation |
-
-### Bypassing Imperva
-
-```python
-import cloudscraper
-
-# cloudscraper handles many Imperva challenges
-scraper = cloudscraper.create_scraper()
-response = scraper.get("https://imperva-protected.com")
-```
-
----
-
-## 6. AWS WAF
-
-### How AWS WAF Works
-
-AWS WAF is rule-based:
-
-```
-Request ──▶ AWS WAF Rules
-                │
-                ├── Rate limiting
-                ├── IP blacklists
-                ├── SQL injection detection
-                ├── XSS detection
-                ├── Bot control (optional)
-                └── Custom rules
-```
-
-### AWS WAF Bot Control
-
-```
-Bot Control Managed Rule Group:
-├── CategoryAdvertising
-├── CategoryArchiver
-├── CategoryContentFetcher
-├── CategoryHttpLibrary    ← python-requests!
-├── CategoryLinkChecker
-├── CategoryMiscellaneous
-├── CategoryMonitoring
-├── CategoryScrapingFramework  ← Scrapy!
-├── CategorySearchEngine
-├── CategorySecurity
-├── CategorySeo
-├── CategorySocialMedia
-└── CategoryVerifiedBot
-```
-
-### Bypassing AWS WAF
-
-AWS WAF is easier than Cloudflare/Akamai:
-
-```python
-import requests
-
-# Usually just need good headers
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
-    "Accept-Encoding": "gzip, deflate, br",
+{
+    "url": "https://geo.captcha-delivery.com/captcha/...",
+    "cid": "...",
 }
-
-response = requests.get(url, headers=headers)
 ```
 
 ---
 
-## Detection Comparison
+## 5. Kasada
 
-| WAF | Detection Level | Bypass Difficulty | Common Method |
-|-----|-----------------|-------------------|---------------|
-| **Cloudflare** | Medium-High | Medium | cloudscraper, FlareSolverr |
-| **Akamai** | Very High | Very Hard | Full browser, services |
-| **PerimeterX** | Very High | Very Hard | Full browser, services |
-| **DataDome** | High | Hard | Browser automation |
-| **Imperva** | Medium | Medium | cloudscraper |
-| **AWS WAF** | Low-Medium | Easy | Good headers |
+### 5.1 How Kasada Works
+
+Kasada uses a unique approach with client-side proof-of-work:
+
+```javascript
+// Kasada requires solving computational challenges
+// The browser must compute a "proof of work" that takes time
+
+// This makes it expensive for bots to operate at scale
+// Each request requires computational resources
+```
+
+### 5.2 Kasada Detection
+
+- JavaScript execution required
+- Proof-of-work computation
+- Timing analysis
+- Device fingerprinting
+
+### 5.3 Kasada Indicators
+
+```python
+def detect_kasada(response):
+    return {
+        "x_kpsdk": "X-KPSDK-CT" in response.headers,
+        "ips_js": "/ips.js" in response.text,
+        "kpsdk": "_kpsdk" in response.text,
+    }
+```
 
 ---
 
-## General Bypass Strategies
+## 6. Detection Service Identification
 
-### Strategy 1: Detect and Adapt
+### 6.1 Identify Protection Service
 
 ```python
-def smart_request(url, session=None):
-    """Detect WAF and use appropriate bypass."""
+def identify_protection(response, url):
+    """Identify which protection service is being used."""
     
-    session = session or requests.Session()
-    response = session.get(url)
+    # Check headers
+    headers = response.headers
     
-    if is_cloudflare_protected(response):
-        return bypass_cloudflare(url)
-    elif is_akamai_protected(response):
-        return bypass_akamai(url)
-    elif is_datadome_protected(response):
-        return bypass_datadome(url)
-    else:
-        return response
+    # Cloudflare
+    if headers.get("Server") == "cloudflare" or "CF-RAY" in headers:
+        return "cloudflare"
+    
+    # Akamai
+    if "X-Akamai-Transformed" in headers or "_abck" in response.text:
+        return "akamai"
+    
+    # PerimeterX
+    if "_px3" in str(response.cookies) or "px-cdn.net" in response.text:
+        return "perimeterx"
+    
+    # DataDome
+    if "datadome" in str(response.cookies) or "X-DataDome" in headers:
+        return "datadome"
+    
+    # Kasada
+    if "X-KPSDK" in str(headers) or "/ips.js" in response.text:
+        return "kasada"
+    
+    # Imperva/Incapsula
+    if "incap_ses" in str(response.cookies) or "visid_incap" in str(response.cookies):
+        return "imperva"
+    
+    # Shape Security (F5)
+    if "_imp_apg_r" in str(response.cookies):
+        return "shape"
+    
+    return "unknown"
 ```
 
-### Strategy 2: Browser-First
+### 6.2 Comprehensive Check
 
 ```python
-def browser_first_approach(url):
-    """Use real browser, extract session for requests."""
+def analyze_protection(url):
+    """Comprehensive protection analysis."""
     
-    # Get authenticated session via browser
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
-        page = browser.new_page()
-        page.goto(url)
-        page.wait_for_timeout(10000)  # Wait for challenges
-        
-        cookies = page.context.cookies()
-        browser.close()
-    
-    # Use cookies with requests
     session = requests.Session()
-    for cookie in cookies:
-        session.cookies.set(cookie['name'], cookie['value'])
     
-    return session
-```
-
-### Strategy 3: Residential Proxies
-
-Many WAFs are less aggressive with residential IPs:
-
-```python
-def use_residential_proxy(url):
-    proxy = "http://user:pass@residential.proxy.com:8080"
+    # First request
+    response = session.get(url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    })
     
-    response = requests.get(
-        url,
-        proxies={"http": proxy, "https": proxy},
-        headers=get_browser_headers()
-    )
+    analysis = {
+        "url": url,
+        "status_code": response.status_code,
+        "protection": identify_protection(response, url),
+        "cookies": list(session.cookies.keys()),
+        "challenge_detected": False,
+        "headers": dict(response.headers)
+    }
     
-    return response
+    # Check for challenge pages
+    challenge_indicators = [
+        "Just a moment",  # Cloudflare
+        "Checking your browser",  # Generic
+        "Access Denied",  # Various
+        "Please verify",  # Various
+        "captcha",  # Any CAPTCHA
+    ]
+    
+    for indicator in challenge_indicators:
+        if indicator.lower() in response.text.lower():
+            analysis["challenge_detected"] = True
+            analysis["challenge_type"] = indicator
+            break
+    
+    return analysis
 ```
 
 ---
 
-## Summary
+## 7. General Bypass Strategies
 
-| WAF | Key Challenge | Best Bypass |
-|-----|---------------|-------------|
-| **Cloudflare** | JS Challenge | cloudscraper, undetected-chromedriver |
-| **Akamai** | Sensor data | Full browser + behavior |
-| **PerimeterX** | Behavioral | Full browser + behavior |
-| **DataDome** | Real-time ML | Browser + residential proxy |
-| **Imperva** | Cookie validation | cloudscraper |
-| **AWS WAF** | Rule matching | Good headers |
+### 7.1 Strategy Matrix
 
-### Key Takeaways
+| Protection | Difficulty | Best Approach |
+|------------|------------|---------------|
+| Cloudflare Free | Easy | Headers + delays |
+| Cloudflare Pro | Medium | Browser + stealth |
+| Cloudflare Enterprise | Hard | Residential proxies + browser |
+| Akamai | Very Hard | Full browser + behavior simulation |
+| PerimeterX | Very Hard | Specialized services |
+| DataDome | Hard | Browser + behavior |
+| Kasada | Very Hard | Browser + wait for PoW |
 
-1. **Identify the WAF first** - Different strategies for each
-2. **Start with libraries** - cloudscraper handles many cases
-3. **Use real browsers** - For tough targets
-4. **Add human behavior** - Mouse, scroll, timing
-5. **Consider residential proxies** - Lower detection rates
-6. **Use solver services** - When automation fails
+### 7.2 Universal Best Practices
+
+```python
+class ProtectedSiteScraper:
+    """General approach for protected sites."""
+    
+    def __init__(self):
+        self.playwright = None
+        self.browser = None
+    
+    def setup(self):
+        from playwright.sync_api import sync_playwright
+        self.playwright = sync_playwright().start()
+        
+        # Use visible browser for best results
+        self.browser = self.playwright.chromium.launch(
+            headless=False,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+            ]
+        )
+    
+    def create_context(self):
+        return self.browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            locale="en-US",
+            timezone_id="America/New_York",
+        )
+    
+    def scrape(self, url):
+        context = self.create_context()
+        page = context.new_page()
+        
+        # Apply stealth
+        self.apply_stealth(page)
+        
+        # Navigate
+        page.goto(url)
+        
+        # Wait for protection to clear
+        self.wait_for_protection(page)
+        
+        # Simulate human behavior
+        self.simulate_human(page)
+        
+        # Get content
+        content = page.content()
+        cookies = context.cookies()
+        
+        page.close()
+        context.close()
+        
+        return content, cookies
+    
+    def apply_stealth(self, page):
+        page.add_init_script("""
+            // Comprehensive stealth
+            Object.defineProperty(navigator, 'webdriver', {get: () => false});
+            
+            window.chrome = {
+                runtime: {},
+                app: { isInstalled: false }
+            };
+            
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [
+                    { name: 'Chrome PDF Plugin' },
+                    { name: 'Chrome PDF Viewer' },
+                    { name: 'Native Client' }
+                ]
+            });
+            
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en']
+            });
+        """)
+    
+    def wait_for_protection(self, page, timeout=30):
+        """Wait for protection challenges to complete."""
+        import time
+        
+        challenge_indicators = [
+            "Just a moment",
+            "Checking your browser",
+            "Access Denied",
+            "Please wait",
+        ]
+        
+        start = time.time()
+        while time.time() - start < timeout:
+            content = page.content()
+            
+            # Check if still on challenge
+            if not any(ind in content for ind in challenge_indicators):
+                return True
+            
+            time.sleep(1)
+        
+        return False
+    
+    def simulate_human(self, page):
+        """Simulate human behavior."""
+        import random
+        import time
+        
+        # Random mouse movements
+        for _ in range(5):
+            x = random.randint(100, 1800)
+            y = random.randint(100, 900)
+            page.mouse.move(x, y)
+            time.sleep(random.uniform(0.1, 0.3))
+        
+        # Scroll
+        page.mouse.wheel(0, random.randint(200, 500))
+        time.sleep(random.uniform(0.5, 1))
+```
+
+### 7.3 Fallback Strategies
+
+```python
+def scrape_with_fallbacks(url):
+    """Try multiple approaches in order of preference."""
+    
+    strategies = [
+        ("requests_simple", try_simple_requests),
+        ("requests_stealth", try_stealth_requests),
+        ("playwright_headless", try_playwright_headless),
+        ("playwright_visible", try_playwright_visible),
+        ("flaresolverr", try_flaresolverr),
+        ("residential_proxy", try_residential_proxy),
+    ]
+    
+    for name, strategy in strategies:
+        try:
+            result = strategy(url)
+            if result and len(result) > 1000:  # Valid response
+                print(f"Success with: {name}")
+                return result
+        except Exception as e:
+            print(f"Failed with {name}: {e}")
+            continue
+    
+    raise Exception("All strategies failed")
+```
+
+---
+
+## 8. Summary
+
+### Protection Difficulty Ranking
+
+```
+Easiest ──────────────────────────────────────────────▶ Hardest
+
+Cloudflare    Cloudflare    DataDome    Akamai    Kasada
+Free          Pro/Business              Bot Mgr   
+
+No protection  Basic WAF    Advanced    Enterprise
+                            Bot Mgmt    Custom
+```
+
+### Quick Reference
+
+| Service | Key Cookie | JS Required | Bypass Difficulty |
+|---------|------------|-------------|-------------------|
+| Cloudflare | cf_clearance | Yes | Medium |
+| Akamai | _abck | Yes | Very Hard |
+| PerimeterX | _px3 | Yes | Very Hard |
+| DataDome | datadome | Yes | Hard |
+| Kasada | - | Yes (PoW) | Very Hard |
+| Imperva | incap_ses | Yes | Medium |
+
+### Key Principles
+
+1. **Identify the protection first** - Different services need different approaches
+2. **Start with simplest solution** - Don't over-engineer
+3. **Browser automation is often necessary** - For modern protections
+4. **Residential proxies help** - Lower suspicion scores
+5. **Behavior simulation matters** - For advanced protections
+6. **Maintain valid cookies** - Reuse sessions when possible
+7. **Have fallback strategies** - Protections change
 
 ---
 
