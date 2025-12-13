@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "company.json",
+  "title": "Company",
+  "description": "Business entity schema",
+  "allOf": [
+    { "$ref": "base_item.json" }
+  ],
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Company name"
+    },
+    "legal_name": {
+      "type": "string"
+    },
+    "industry": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "website": {
+      "type": "string",
+      "format": "uri"
+    },
+    "phone": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string",
+      "format": "email"
+    },
+    "address": {
+      "type": "object",
+      "properties": {
+        "street": { "type": "string" },
+        "city": { "type": "string" },
+        "state": { "type": "string" },
+        "zip": { "type": "string" },
+        "country": { "type": "string" }
+      }
+    },
+    "employees": {
+      "type": "string",
+      "description": "Employee count range"
+    },
+    "revenue": {
+      "type": "string",
+      "description": "Revenue range"
+    },
+    "founded": {
+      "type": "integer"
+    },
+    "social": {
+      "type": "object",
+      "properties": {
+        "linkedin": { "type": "string", "format": "uri" },
+        "twitter": { "type": "string", "format": "uri" },
+        "facebook": { "type": "string", "format": "uri" }
+      }
+    }
+  },
+  "required": ["name"]
+}
