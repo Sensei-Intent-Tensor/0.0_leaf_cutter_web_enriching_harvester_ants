@@ -1,187 +1,136 @@
-# JavaScript Rendering & SPAs
+# JavaScript Rendering & Single Page Applications
 
 > **When Static Scraping Isn't Enough**
 
-Modern websites increasingly rely on JavaScript to render content. If your scraper only sees an empty page or "Loading...", this document is for you.
+Modern web applications rely heavily on JavaScript to render content. This document explains when you need browser automation, how it works, and strategies for efficient JS-heavy scraping.
 
 ---
 
 ## The Problem
 
-### Server-Rendered (Traditional)
-```
-Browser Request → Server → Complete HTML → Browser Displays
+### Static HTML (Easy)
 
-What you GET:
-<html>
-  <body>
-    <div class="products">
-      <div class="product">Real Product Data</div>
-      <div class="product">More Products</div>
-    </div>
-  </body>
-</html>
+```
+Server sends:         You see:
+<h1>Products</h1>     <h1>Products</h1>
+<div>Item 1</div>     <div>Item 1</div>
+<div>Item 2</div>     <div>Item 2</div>
 ```
 
-### Client-Rendered (Modern SPA)
-```
-Browser Request → Server → Skeleton HTML + JavaScript → JS Fetches Data → JS Renders
+### JavaScript-Rendered (Harder)
 
-What you GET (without JS execution):
-<html>
-  <body>
-    <div id="root"></div>
-    <script src="bundle.js"></script>
-  </body>
-</html>
+```
+Server sends:           After JS runs:
+<div id="app"></div>    <div id="app">
+<script src="app.js">     <h1>Products</h1>
+</script>                  <div>Item 1</div>
+                          <div>Item 2</div>
+                        </div>
 ```
 
-The actual content is loaded and rendered by JavaScript AFTER the page loads.
+**With static scraping, you only get the empty `<div id="app">`.**
 
 ---
 
-## How to Detect JavaScript-Rendered Content
+## Detecting JavaScript-Rendered Content
 
-### Method 1: View Source vs Inspect
+### Method 1: View Source vs. Inspect
 
 1. **View Page Source** (Ctrl+U): Shows raw HTML from server
-2. **Inspect Element** (F12): Shows rendered DOM after JavaScript
+2. **Inspect Element** (F12): Shows HTML after JavaScript runs
 
-If they differ significantly, the page uses client-side rendering.
+If they're different, JavaScript is rendering content.
 
 ### Method 2: Disable JavaScript
 
-1. Open DevTools → Settings → Debugger → Disable JavaScript
+1. Open DevTools → Settings → Disable JavaScript
 2. Reload the page
 3. If content disappears, it's JavaScript-rendered
 
-### Method 3: Check Your Scraper Output
+### Method 3: Compare Static vs. Browser Response
 
 ```python
 import requests
+from playwright.sync_api import sync_playwright
+
+url = "https://example.com"
+
+# Static request
+static_html = requests.get(url).text
+
+# Browser-rendered
+with sync_playwright() as p:
+    browser = p.chromium.launch()
+    page = browser.new_page()
+    page.goto(url)
+    rendered_html = page.content()
+
+# Compare lengths
+print(f"Static: {len(static_html)} chars")
+print(f"Rendered: {len(rendered_html)} chars")
+
+# If rendered is significantly larger, JS is adding content
+```
+
+---
+
+## Understanding SPAs
+
+### Single Page Application Architecture
+
+```
+Traditional Site:
+Page 1 ─── /page1.html ─── Full HTML
+Page 2 ─── /page2.html ─── Full HTML
+Page 3 ─── /page3.html ─── Full HTML
+
+SPA:
+All Pages ─── /index.html ─── JavaScript Shell
+         └── JS fetches data ─── JSON API
+         └── JS renders content ─── Updates DOM
+```
+
+### Common SPA Frameworks
+
+| Framework | Detection Signs |
+|-----------|----------------|
+| **React** | `<div id="root">`, `__NEXT_DATA__`, `data-reactroot` |
+| **Vue** | `<div id="app">`, `data-v-*` attributes |
+| **Angular** | `<app-root>`, `ng-*` attributes |
+| **Next.js** | `__NEXT_DATA__` script tag |
+| **Nuxt** | `__NUXT__` variable |
+
+### Finding Data in SPAs
+
+Often, the data is embedded in the page:
+
+```python
 from bs4 import BeautifulSoup
+import json
 
-response = requests.get("https://spa-site.com/products")
-soup = BeautifulSoup(response.text, "html.parser")
+html = requests.get(url).text
+soup = BeautifulSoup(html, "html.parser")
 
-products = soup.select("div.product")
-print(f"Found: {len(products)} products")  # 0 if JS-rendered
-```
+# Next.js embeds data in a script tag
+next_data = soup.select_one("#__NEXT_DATA__")
+if next_data:
+    data = json.loads(next_data.string)
+    # Data is here without running JavaScript!
 
-### Method 4: Look for SPA Frameworks
-
-```html
-<!-- React -->
-<div id="root"></div>
-<div id="__next"></div>  <!-- Next.js -->
-
-<!-- Vue -->
-<div id="app"></div>
-
-<!-- Angular -->
-<app-root></app-root>
-
-<!-- Common indicators -->
-<script src="bundle.js"></script>
-<script src="main.chunk.js"></script>
+# Some sites embed data in window objects
+import re
+match = re.search(r'window\.__INITIAL_STATE__\s*=\s*({.*?});', html)
+if match:
+    data = json.loads(match.group(1))
 ```
 
 ---
 
-## Solutions Overview
+## Browser Automation Options
 
-| Solution | Speed | Resources | Complexity | JS Support |
-|----------|-------|-----------|------------|------------|
-| **Find the API** | ⚡ Fast | Low | Medium | Not needed |
-| **Playwright/Puppeteer** | 🐢 Slow | High | Medium | Full |
-| **Selenium** | 🐢 Slow | High | Medium | Full |
-| **Splash** | 🐢 Slow | Medium | High | Full |
-| **requests-html** | Medium | Medium | Low | Limited |
+### Playwright (Recommended)
 
----
-
-## Solution 1: Find the Hidden API (Best!)
-
-Most SPAs fetch data from JSON APIs. Find it and call it directly.
-
-### How to Find the API
-
-1. Open DevTools → Network tab
-2. Filter by "XHR" or "Fetch"
-3. Interact with the page (load products, paginate, etc.)
-4. Look for JSON responses
-
-```
-Network Tab:
-Name                          Method    Status    Type
-/api/products?page=1          GET       200       json
-/api/products/123             GET       200       json
-/graphql                      POST      200       json
-```
-
-### Call the API Directly
-
-```python
-import requests
-
-# Instead of scraping the HTML page:
-# response = requests.get("https://spa-site.com/products")
-
-# Call the API directly:
-response = requests.get(
-    "https://spa-site.com/api/products",
-    params={"page": 1, "limit": 20},
-    headers={
-        "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0...",
-    }
-)
-
-products = response.json()["data"]
-# Clean, structured data!
-```
-
-### GraphQL APIs
-
-```python
-# GraphQL uses POST with query in body
-response = requests.post(
-    "https://spa-site.com/graphql",
-    json={
-        "query": """
-            query GetProducts($page: Int!) {
-                products(page: $page) {
-                    id
-                    name
-                    price
-                }
-            }
-        """,
-        "variables": {"page": 1}
-    },
-    headers={
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-)
-
-products = response.json()["data"]["products"]
-```
-
----
-
-## Solution 2: Playwright (Recommended)
-
-Modern, fast, reliable browser automation.
-
-### Installation
-
-```bash
-pip install playwright
-playwright install  # Downloads browser binaries
-```
-
-### Basic Usage
+Modern, fast, multi-browser support.
 
 ```python
 from playwright.sync_api import sync_playwright
@@ -192,12 +141,12 @@ with sync_playwright() as p:
     page = browser.new_page()
     
     # Navigate
-    page.goto("https://spa-site.com/products")
+    page.goto("https://example.com")
     
-    # Wait for content to load
-    page.wait_for_selector("div.product")
+    # Wait for content
+    page.wait_for_selector("div.products")
     
-    # Extract data
+    # Extract
     products = page.query_selector_all("div.product")
     for product in products:
         name = product.query_selector("h2").inner_text()
@@ -207,146 +156,9 @@ with sync_playwright() as p:
     browser.close()
 ```
 
-### Waiting Strategies
+### Puppeteer (Node.js)
 
-```python
-# Wait for specific element
-page.wait_for_selector("div.product")
-
-# Wait for element to be visible
-page.wait_for_selector("div.product", state="visible")
-
-# Wait for network to be idle
-page.wait_for_load_state("networkidle")
-
-# Wait for specific number of elements
-page.wait_for_function("document.querySelectorAll('.product').length >= 10")
-
-# Wait for text to appear
-page.wait_for_selector("text=Product loaded")
-
-# Custom timeout
-page.wait_for_selector("div.product", timeout=30000)  # 30 seconds
-```
-
-### Handling Infinite Scroll
-
-```python
-from playwright.sync_api import sync_playwright
-
-def scrape_infinite_scroll(url, max_items=100):
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        page.goto(url)
-        
-        items = []
-        last_count = 0
-        
-        while len(items) < max_items:
-            # Scroll to bottom
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            
-            # Wait for new content
-            page.wait_for_timeout(2000)  # 2 seconds
-            
-            # Get current items
-            items = page.query_selector_all("div.item")
-            
-            # Check if we got new items
-            if len(items) == last_count:
-                break  # No more content
-            last_count = len(items)
-        
-        # Extract data
-        data = []
-        for item in items[:max_items]:
-            data.append({
-                "title": item.query_selector("h3").inner_text(),
-                "link": item.query_selector("a").get_attribute("href"),
-            })
-        
-        browser.close()
-        return data
-```
-
-### Clicking and Interacting
-
-```python
-# Click a button
-page.click("button.load-more")
-
-# Fill a form
-page.fill("input#search", "python")
-page.press("input#search", "Enter")
-
-# Select dropdown
-page.select_option("select#category", "electronics")
-
-# Hover
-page.hover("div.tooltip-trigger")
-
-# Wait and click
-page.wait_for_selector("button.submit")
-page.click("button.submit")
-```
-
-### Extracting Data
-
-```python
-# Get text
-text = page.inner_text("h1")
-
-# Get attribute
-href = page.get_attribute("a.link", "href")
-
-# Get HTML
-html = page.inner_html("div.content")
-
-# Get full page HTML (after JS)
-full_html = page.content()
-
-# Use BeautifulSoup on rendered HTML
-from bs4 import BeautifulSoup
-soup = BeautifulSoup(page.content(), "html.parser")
-```
-
-### Capturing Network Requests
-
-```python
-from playwright.sync_api import sync_playwright
-
-api_responses = []
-
-def handle_response(response):
-    if "/api/" in response.url:
-        api_responses.append({
-            "url": response.url,
-            "status": response.status,
-            "body": response.json() if "json" in response.headers.get("content-type", "") else None
-        })
-
-with sync_playwright() as p:
-    browser = p.chromium.launch()
-    page = browser.new_page()
-    
-    # Listen for responses
-    page.on("response", handle_response)
-    
-    page.goto("https://spa-site.com/products")
-    page.wait_for_load_state("networkidle")
-    
-    # Now api_responses contains all API calls the page made
-    for resp in api_responses:
-        print(f"API: {resp['url']}")
-        print(f"Data: {resp['body']}")
-```
-
----
-
-## Solution 3: Puppeteer (Node.js)
-
-Similar to Playwright, but JavaScript-only.
+Chrome-focused, mature ecosystem.
 
 ```javascript
 const puppeteer = require('puppeteer');
@@ -355,276 +167,426 @@ const puppeteer = require('puppeteer');
     const browser = await puppeteer.launch({headless: true});
     const page = await browser.newPage();
     
-    await page.goto('https://spa-site.com/products');
-    await page.waitForSelector('div.product');
+    await page.goto('https://example.com');
+    await page.waitForSelector('div.products');
     
-    const products = await page.evaluate(() => {
-        return Array.from(document.querySelectorAll('div.product')).map(el => ({
+    const products = await page.$$eval('div.product', elements =>
+        elements.map(el => ({
             name: el.querySelector('h2').innerText,
-            price: el.querySelector('.price').innerText,
-        }));
-    });
+            price: el.querySelector('.price').innerText
+        }))
+    );
     
     console.log(products);
     await browser.close();
 })();
 ```
 
----
+### Selenium
 
-## Solution 4: Selenium (Legacy)
-
-Older but still widely used.
+Older but widely supported.
 
 ```python
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
 
-# Setup headless Chrome
-options = Options()
-options.add_argument("--headless")
-options.add_argument("--no-sandbox")
-options.add_argument("--disable-dev-shm-usage")
+driver = webdriver.Chrome()
+driver.get("https://example.com")
 
-driver = webdriver.Chrome(options=options)
+# Wait for content
+wait = WebDriverWait(driver, 10)
+products = wait.until(
+    EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.product"))
+)
 
-try:
-    driver.get("https://spa-site.com/products")
-    
-    # Wait for element
-    wait = WebDriverWait(driver, 10)
-    products = wait.until(
-        EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.product"))
-    )
-    
-    for product in products:
-        name = product.find_element(By.CSS_SELECTOR, "h2").text
-        price = product.find_element(By.CSS_SELECTOR, ".price").text
-        print(f"{name}: {price}")
-        
-finally:
-    driver.quit()
+for product in products:
+    name = product.find_element(By.CSS_SELECTOR, "h2").text
+    price = product.find_element(By.CSS_SELECTOR, ".price").text
+    print(f"{name}: {price}")
+
+driver.quit()
+```
+
+### Comparison
+
+| Feature | Playwright | Puppeteer | Selenium |
+|---------|------------|-----------|----------|
+| **Speed** | Fast | Fast | Slower |
+| **Browsers** | Chrome, Firefox, WebKit | Chrome | All major |
+| **Language** | Python, JS, .NET, Java | JavaScript | Many |
+| **Auto-wait** | Built-in | Manual | Manual |
+| **Async** | Yes | Yes | Limited |
+| **Setup** | Easy | Easy | More complex |
+
+---
+
+## Waiting Strategies
+
+### The Problem
+
+JavaScript loads content asynchronously. You need to wait for it.
+
+```python
+# ❌ This won't work - content not loaded yet
+page.goto("https://example.com")
+products = page.query_selector_all("div.product")  # Empty!
+
+# ✅ Wait for content to appear
+page.goto("https://example.com")
+page.wait_for_selector("div.product")
+products = page.query_selector_all("div.product")  # Has data!
+```
+
+### Wait Methods
+
+#### Wait for Selector
+
+```python
+# Wait for element to exist
+page.wait_for_selector("div.products")
+
+# Wait for element to be visible
+page.wait_for_selector("div.products", state="visible")
+
+# Wait for element to be hidden
+page.wait_for_selector("div.loading", state="hidden")
+```
+
+#### Wait for Load State
+
+```python
+# Wait for network to be idle
+page.goto(url, wait_until="networkidle")
+
+# Wait for DOM content loaded
+page.goto(url, wait_until="domcontentloaded")
+
+# Wait for full load
+page.goto(url, wait_until="load")
+```
+
+#### Wait for Function
+
+```python
+# Wait for custom condition
+page.wait_for_function("window.dataLoaded === true")
+
+# Wait for array to have items
+page.wait_for_function("document.querySelectorAll('.product').length > 0")
+```
+
+#### Fixed Timeout (Last Resort)
+
+```python
+import time
+
+# ❌ Avoid if possible - unreliable
+time.sleep(5)
+
+# ✅ Better: wait for specific condition with timeout
+page.wait_for_selector("div.products", timeout=10000)
 ```
 
 ---
 
-## Hybrid Approach: Browser + Requests
+## Handling Dynamic Content
 
-Use browser to solve the hard parts, then switch to fast requests.
+### Infinite Scroll
 
 ```python
-from playwright.sync_api import sync_playwright
-import requests
+def scrape_infinite_scroll(page, item_selector, max_items=100):
+    items = []
+    
+    while len(items) < max_items:
+        # Get current items
+        current_items = page.query_selector_all(item_selector)
+        new_count = len(current_items)
+        
+        if new_count == len(items):
+            # No new items loaded, we're done
+            break
+        
+        items = current_items
+        
+        # Scroll to bottom
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        
+        # Wait for new content
+        page.wait_for_timeout(1000)
+    
+    return items
 
-def hybrid_scrape():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
-        page = context.new_page()
-        
-        # Use browser to login and get session
-        page.goto("https://spa-site.com/login")
-        page.fill("#username", "user")
-        page.fill("#password", "pass")
-        page.click("#submit")
-        page.wait_for_url("**/dashboard")
-        
-        # Extract cookies
-        cookies = context.cookies()
-        
-        # Also capture any API calls to find endpoints
-        # ...
-        
-        browser.close()
+# Usage
+page.goto("https://example.com/feed")
+items = scrape_infinite_scroll(page, "div.post", max_items=200)
+```
+
+### Load More Button
+
+```python
+def click_load_more(page, button_selector, item_selector, max_clicks=10):
+    clicks = 0
     
-    # Now use fast requests with the cookies
-    session = requests.Session()
-    for cookie in cookies:
-        session.cookies.set(cookie["name"], cookie["value"])
+    while clicks < max_clicks:
+        # Try to find and click the button
+        button = page.query_selector(button_selector)
+        
+        if not button or not button.is_visible():
+            break
+        
+        # Get current count
+        before_count = len(page.query_selector_all(item_selector))
+        
+        # Click load more
+        button.click()
+        
+        # Wait for new items
+        page.wait_for_function(
+            f"document.querySelectorAll('{item_selector}').length > {before_count}",
+            timeout=5000
+        )
+        
+        clicks += 1
     
-    # Scrape efficiently
-    for page_num in range(1, 100):
-        response = session.get(f"https://spa-site.com/api/products?page={page_num}")
-        data = response.json()
-        process(data)
+    return page.query_selector_all(item_selector)
+```
+
+### Lazy Loading Images
+
+```python
+# Scroll through page to trigger lazy loading
+def trigger_lazy_load(page):
+    # Get page height
+    height = page.evaluate("document.body.scrollHeight")
+    
+    # Scroll in increments
+    position = 0
+    while position < height:
+        page.evaluate(f"window.scrollTo(0, {position})")
+        page.wait_for_timeout(200)
+        position += 500
+        
+        # Update height (page might have grown)
+        height = page.evaluate("document.body.scrollHeight")
 ```
 
 ---
 
 ## Performance Optimization
 
-### Playwright Optimization
+### Block Unnecessary Resources
 
 ```python
-from playwright.sync_api import sync_playwright
+def block_resources(route):
+    """Block images, fonts, stylesheets for faster loading."""
+    if route.request.resource_type in ["image", "font", "stylesheet"]:
+        route.abort()
+    else:
+        route.continue_()
 
-with sync_playwright() as p:
-    browser = p.chromium.launch(
-        headless=True,
-        args=[
-            "--disable-gpu",
-            "--disable-dev-shm-usage",
-            "--disable-setuid-sandbox",
-            "--no-sandbox",
-        ]
-    )
-    
-    context = browser.new_context(
-        viewport={"width": 1920, "height": 1080},
-        user_agent="Mozilla/5.0...",
-        # Block unnecessary resources
-    )
-    
-    page = context.new_page()
-    
-    # Block images, CSS, fonts to speed up
-    page.route("**/*.{png,jpg,jpeg,gif,svg,css,woff,woff2}", lambda route: route.abort())
-    
-    page.goto(url)
+page.route("**/*", block_resources)
+page.goto("https://example.com")  # Much faster!
 ```
 
-### Reuse Browser Instance
+### More Aggressive Blocking
 
 ```python
-# DON'T: Launch browser for each page
+BLOCKED_RESOURCES = [
+    "image", "font", "stylesheet", "media", 
+    "texttrack", "object", "beacon", "csp_report", "imageset"
+]
+
+BLOCKED_URLS = [
+    "google-analytics.com",
+    "googletagmanager.com",
+    "facebook.com",
+    "doubleclick.net",
+    "hotjar.com",
+]
+
+def should_block(route):
+    # Block by resource type
+    if route.request.resource_type in BLOCKED_RESOURCES:
+        return True
+    
+    # Block by URL pattern
+    url = route.request.url
+    for blocked in BLOCKED_URLS:
+        if blocked in url:
+            return True
+    
+    return False
+
+def handle_route(route):
+    if should_block(route):
+        route.abort()
+    else:
+        route.continue_()
+
+page.route("**/*", handle_route)
+```
+
+### Reuse Browser Instances
+
+```python
+# ❌ Slow: New browser for each page
 for url in urls:
     with sync_playwright() as p:
         browser = p.chromium.launch()
+        page = browser.new_page()
+        page.goto(url)
         # ...
 
-# DO: Reuse browser, create new pages
+# ✅ Fast: Reuse browser, new pages
 with sync_playwright() as p:
     browser = p.chromium.launch()
     
     for url in urls:
         page = browser.new_page()
         page.goto(url)
-        # Extract data
-        page.close()  # Close page, not browser
+        # ... extract data ...
+        page.close()  # Close page, keep browser
     
     browser.close()
 ```
 
-### Parallel Pages
+### Browser Context for Isolation
 
 ```python
-import asyncio
-from playwright.async_api import async_playwright
-
-async def scrape_page(browser, url):
-    page = await browser.new_page()
-    await page.goto(url)
-    await page.wait_for_selector("div.content")
-    content = await page.inner_text("div.content")
-    await page.close()
-    return content
-
-async def main():
-    async with async_playwright() as p:
-        browser = await p.chromium.launch()
-        
-        urls = ["https://site.com/1", "https://site.com/2", "https://site.com/3"]
-        tasks = [scrape_page(browser, url) for url in urls]
-        results = await asyncio.gather(*tasks)
-        
-        await browser.close()
-        return results
-
-results = asyncio.run(main())
+with sync_playwright() as p:
+    browser = p.chromium.launch()
+    
+    # Create isolated context (fresh cookies, storage)
+    context = browser.new_context()
+    
+    # Pages in same context share cookies
+    page1 = context.new_page()
+    page2 = context.new_page()
+    
+    # New context = fresh state
+    context2 = browser.new_context()
 ```
 
 ---
 
-## Common Challenges
+## Intercepting Network Requests
 
-### Challenge: Content Behind Click
+### Capture API Responses
 
 ```python
-# Click to reveal content
-page.click("button.show-details")
-page.wait_for_selector("div.details")
-details = page.inner_text("div.details")
+api_data = []
+
+def capture_api(response):
+    if "/api/products" in response.url:
+        api_data.append(response.json())
+
+page.on("response", capture_api)
+page.goto("https://example.com/products")
+
+# Now api_data contains the JSON responses
+print(api_data)
 ```
 
-### Challenge: Lazy-Loaded Images
+### Mock API Responses
 
 ```python
-# Scroll to trigger lazy loading
-page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-page.wait_for_timeout(1000)
+def mock_api(route):
+    if "/api/products" in route.request.url:
+        # Return custom data
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body='[{"name": "Test Product", "price": 99.99}]'
+        )
+    else:
+        route.continue_()
 
-# Or scroll to specific element
-page.evaluate("document.querySelector('.last-item').scrollIntoView()")
+page.route("**/api/**", mock_api)
 ```
 
-### Challenge: Shadow DOM
+### Extract Data from XHR
 
 ```python
-# Pierce shadow DOM
-element = page.locator("custom-element").locator("internal:shadow=div.inside-shadow")
-text = element.inner_text()
+# Often faster: intercept the API call instead of parsing HTML
+products = []
 
-# Or evaluate JavaScript
-text = page.evaluate("""
-    document.querySelector('custom-element')
-        .shadowRoot
-        .querySelector('div.inside-shadow')
-        .innerText
-""")
-```
+def handle_response(response):
+    if "api.example.com/products" in response.url:
+        data = response.json()
+        products.extend(data["items"])
 
-### Challenge: iframes
+page.on("response", handle_response)
+page.goto("https://example.com")
+page.wait_for_load_state("networkidle")
 
-```python
-# Get iframe
-iframe = page.frame_locator("iframe#content-frame")
-
-# Interact with iframe content
-iframe.locator("button.submit").click()
-text = iframe.locator("div.result").inner_text()
+# Products extracted directly from API, no HTML parsing needed
+print(products)
 ```
 
 ---
 
-## Decision Flowchart
+## When to Use What
+
+### Decision Tree
 
 ```
-Is content visible in View Source?
-│
-├── YES → Use static scraping (requests + BeautifulSoup)
-│
-└── NO → Is there a JSON API?
-         │
-         ├── YES → Call API directly (best option!)
-         │
-         └── NO → Use browser automation
-                  │
-                  ├── Need speed? → Playwright (recommended)
-                  ├── Already know Selenium? → Selenium
-                  └── Need Node.js? → Puppeteer
+Is content in initial HTML?
+├── Yes → Use static scraping (requests + BeautifulSoup)
+└── No → Is data in embedded JSON?
+    ├── Yes → Extract JSON from HTML (still static)
+    └── No → Is there a hidden API?
+        ├── Yes → Call API directly (static)
+        └── No → Use browser automation
+```
+
+### Hybrid Approach
+
+Use browser once to discover API, then use static requests:
+
+```python
+# Step 1: Use browser to find API endpoint
+api_urls = []
+
+def capture_apis(response):
+    if response.request.resource_type == "xhr":
+        api_urls.append(response.url)
+
+page.on("response", capture_apis)
+page.goto("https://example.com")
+page.wait_for_load_state("networkidle")
+
+print("Discovered APIs:", api_urls)
+
+# Step 2: Call API directly (much faster)
+for api_url in api_urls:
+    if "products" in api_url:
+        data = requests.get(api_url, headers=browser_headers).json()
+        # Process without browser!
 ```
 
 ---
 
 ## Summary
 
-| Approach | When to Use | Pros | Cons |
-|----------|-------------|------|------|
-| **Find API** | Always try first | Fast, clean data | Not always available |
-| **Playwright** | JS-heavy sites | Modern, fast, reliable | Resource heavy |
-| **Selenium** | Legacy projects | Mature, documented | Slower, flaky |
-| **Hybrid** | Complex auth + data | Best of both | More complex |
+| Scenario | Solution |
+|----------|----------|
+| **Static HTML** | `requests` + `BeautifulSoup` |
+| **Data in `__NEXT_DATA__`** | Extract JSON from HTML |
+| **Hidden API discovered** | Direct API calls |
+| **Must render JavaScript** | Playwright/Puppeteer |
+| **Infinite scroll** | Browser + scroll automation |
+| **Complex interactions** | Full browser automation |
 
-### Key Takeaways
+### Key Principles
 
-1. **Always look for the API first** - It's faster and gives cleaner data
-2. **Playwright is the modern standard** - Use it for new projects
-3. **Wait properly** - Most issues are timing-related
-4. **Block unnecessary resources** - Speed up by blocking images/CSS
-5. **Reuse browser instances** - Don't launch for each page
+1. **Try static first** - It's always faster
+2. **Look for embedded data** - Check `__NEXT_DATA__`, `window.__INITIAL_STATE__`
+3. **Find hidden APIs** - Use DevTools Network tab
+4. **Block unnecessary resources** - Speed up browser automation
+5. **Intercept, don't parse** - Get data from API responses directly
+6. **Reuse browser instances** - Don't restart for each page
 
 ---
 
