@@ -1,8 +1,8 @@
 # 04_colony_orchestration
 
-> **Running Scraping Operations at Scale**
+> **Running Scrapers at Scale**
 
-Single scripts are fine for small jobs. But when you need to scrape millions of pages across thousands of sites while respecting rate limits, handling failures, and maintaining visibility—you need orchestration.
+Moving from a single script to a production scraping operation requires orchestration - scheduling, queuing, distributing work, monitoring, and handling failures.
 
 ---
 
@@ -11,66 +11,58 @@ Single scripts are fine for small jobs. But when you need to scrape millions of 
 | # | Document | Lines | Description |
 |---|----------|-------|-------------|
 | 01 | [Scheduling](01_scheduling.md) | 422 | When and how often to run scrapers |
-| 02 | [Queue Management](02_queue_management.md) | 455 | Organizing and prioritizing jobs |
+| 02 | [Queue Management](02_queue_management.md) | 455 | Managing job queues and priorities |
 | 03 | [Distributed Crawling](03_distributed_crawling.md) | 484 | Scaling across multiple machines |
-| 04 | [Monitoring & Logging](04_monitoring_logging.md) | 510 | Observability for operations |
-| 05 | [Failure Recovery](05_failure_recovery.md) | 662 | Handling failures gracefully |
+| 04 | [Monitoring & Logging](04_monitoring_logging.md) | 510 | Observability and alerting |
+| 05 | [Failure Recovery](05_failure_recovery.md) | 561 | Handling failures gracefully |
 
-**Total: ~2,533 lines of orchestration guidance**
+**Total: ~2,432 lines of orchestration guidance**
 
 ---
 
 ## 🏗️ Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                    COLONY ORCHESTRATION                              │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   ┌─────────────┐     ┌─────────────┐     ┌─────────────┐           │
-│   │  SCHEDULER  │────▶│    QUEUE    │────▶│   WORKERS   │           │
-│   │             │     │             │     │             │           │
-│   │ Cron/Timer  │     │ Redis/      │     │ Distributed │           │
-│   │ Adaptive    │     │ Celery      │     │ Pool        │           │
-│   └─────────────┘     └─────────────┘     └─────────────┘           │
-│          │                   │                   │                   │
-│          ▼                   ▼                   ▼                   │
-│   ┌─────────────────────────────────────────────────────┐           │
-│   │                    MONITORING                        │           │
-│   │  Metrics │ Logs │ Alerts │ Dashboards               │           │
-│   └─────────────────────────────────────────────────────┘           │
-│          │                   │                   │                   │
-│          ▼                   ▼                   ▼                   │
-│   ┌─────────────────────────────────────────────────────┐           │
-│   │                 FAILURE RECOVERY                     │           │
-│   │  Retries │ Circuit Breakers │ Checkpoints │ DLQ     │           │
-│   └─────────────────────────────────────────────────────┘           │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        ORCHESTRATION LAYER                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────────┐ │
+│  │  SCHEDULER  │───▶│    QUEUE    │───▶│         WORKERS             │ │
+│  │             │    │             │    │  ┌───┐ ┌───┐ ┌───┐ ┌───┐   │ │
+│  │ Cron/Timer  │    │ Redis/RMQ   │    │  │ W │ │ W │ │ W │ │ W │   │ │
+│  └─────────────┘    └─────────────┘    │  └───┘ └───┘ └───┘ └───┘   │ │
+│                                        └─────────────────────────────┘ │
+│                                                     │                   │
+│                           ┌─────────────────────────┘                   │
+│                           ▼                                             │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                      SHARED INFRASTRUCTURE                       │   │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────┐ │   │
+│  │  │  Redis   │  │ Database │  │  Metrics │  │     Logs         │ │   │
+│  │  │(frontier)│  │ (results)│  │(Prometheus)│ │(Elasticsearch)   │ │   │
+│  │  └──────────┘  └──────────┘  └──────────┘  └──────────────────┘ │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## 🎯 Quick Reference
 
-### Scheduling Patterns
+### Scheduling
 
 ```python
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 scheduler = BackgroundScheduler()
-
-# Every 6 hours
-scheduler.add_job(scrape_products, 'interval', hours=6)
-
-# Daily at 9 AM
-scheduler.add_job(scrape_news, CronTrigger(hour=9))
-
+scheduler.add_job(scrape_products, CronTrigger(hour=9))  # Daily at 9 AM
 scheduler.start()
 ```
 
-### Queue with Celery
+### Queue Management
 
 ```python
 from celery import Celery
@@ -82,68 +74,81 @@ def scrape_url(self, url):
     try:
         return do_scrape(url)
     except TransientError as e:
-        raise self.retry(exc=e, countdown=60)
+        raise self.retry(exc=e)
 ```
 
-### Circuit Breaker
+### Distributed Frontier
 
 ```python
-breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=30)
-
-if breaker.can_execute():
-    try:
-        result = scrape(url)
-        breaker.record_success()
-    except:
-        breaker.record_failure()
-        raise
+class DistributedFrontier:
+    def __init__(self, redis_url):
+        self.redis = redis.from_url(redis_url)
+    
+    def add_url(self, url, priority=5):
+        if not self.redis.sismember('seen', url):
+            self.redis.sadd('seen', url)
+            self.redis.zadd('pending', {url: priority})
 ```
 
 ### Retry with Backoff
 
 ```python
-@retry_with_backoff(max_retries=3, base_delay=1.0)
+@retry(stop=stop_after_attempt(3),
+       wait=wait_exponential(min=1, max=60))
 def fetch(url):
-    response = requests.get(url, timeout=30)
-    response.raise_for_status()
+    response = requests.get(url)
+    if response.status_code == 429:
+        raise RetryableError()
     return response
 ```
 
 ---
 
-## 📊 Key Metrics to Track
+## 📊 Choosing Your Stack
 
-| Metric | Description | Alert Threshold |
-|--------|-------------|-----------------|
-| **Requests/sec** | Throughput | < expected |
-| **Error rate** | Failed / total | > 5% |
-| **Queue depth** | Pending jobs | > 10,000 |
-| **Latency p95** | Response time | > 10s |
-| **Success rate** | Completed jobs | < 95% |
-
----
-
-## 🔧 Technology Stack
-
-| Component | Options |
-|-----------|---------|
-| **Scheduler** | APScheduler, Celery Beat, Cron |
-| **Queue** | Redis, RabbitMQ, Celery |
-| **Workers** | Celery, Custom, Scrapy |
-| **Metrics** | Prometheus, StatsD |
-| **Logging** | ELK, Loki, CloudWatch |
-| **Dashboards** | Grafana, Custom |
+| Scale | Scheduler | Queue | Workers | Monitoring |
+|-------|-----------|-------|---------|------------|
+| **Small** | APScheduler | In-memory | Threads | Logging |
+| **Medium** | Celery Beat | Redis | Celery | Prometheus |
+| **Large** | Airflow | RabbitMQ | Kubernetes | Grafana + ELK |
+| **Enterprise** | Custom | Kafka | Auto-scaling | Full observability |
 
 ---
 
-## 📈 Scaling Guidelines
+## 🔄 Orchestration Patterns
 
-| Scale | Architecture | Workers |
-|-------|--------------|---------|
-| **Small** (<10K/day) | Single machine | 1-4 threads |
-| **Medium** (<100K/day) | Redis + workers | 4-16 processes |
-| **Large** (<1M/day) | Distributed | 10-50 machines |
-| **Enterprise** (>1M/day) | Kubernetes | Auto-scaling |
+### Pattern 1: Simple Cron Job
+```
+Cron → Script → Database
+```
+Best for: Low-volume, single site
+
+### Pattern 2: Queue-Based
+```
+Scheduler → Queue → Workers → Database
+```
+Best for: Medium volume, multiple sites
+
+### Pattern 3: Distributed Frontier
+```
+Frontier ←→ Workers ←→ Results Store
+    ↑           ↓
+    └── New URLs ──┘
+```
+Best for: Large-scale crawling
+
+---
+
+## ⚠️ Key Considerations
+
+| Factor | Small Scale | Large Scale |
+|--------|-------------|-------------|
+| **Scheduling** | Cron/APScheduler | Distributed scheduler |
+| **Queue** | In-memory | Redis/RabbitMQ |
+| **Deduplication** | Set in memory | Redis/Bloom filter |
+| **Rate Limiting** | Per-process | Distributed (Redis) |
+| **Checkpointing** | File-based | Database |
+| **Monitoring** | Logs | Metrics + Alerts |
 
 ---
 
