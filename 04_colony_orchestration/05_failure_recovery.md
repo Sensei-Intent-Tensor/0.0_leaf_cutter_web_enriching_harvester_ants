@@ -1,40 +1,35 @@
 # Failure Recovery
 
-> **Building Resilient Scraping Systems**
+> **Building Resilient Scrapers That Handle Failures Gracefully**
 
-Failures are inevitable. Networks drop, sites go down, HTML changes, and rate limits hit. This document covers strategies for graceful failure handling and recovery.
+Failures are inevitable in web scraping. Sites go down, networks fail, and rate limits trigger. This document covers strategies for handling failures and recovering gracefully.
 
 ---
 
-## Failure Types
+## Types of Failures
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                      FAILURE TAXONOMY                           │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  TRANSIENT (Retry usually works)                               │
+│  TRANSIENT (Retry)                                             │
 │  ├── Network timeout                                           │
+│  ├── Connection reset                                          │
 │  ├── 429 Rate limited                                          │
 │  ├── 503 Service unavailable                                   │
-│  └── Connection reset                                          │
+│  └── 502/504 Gateway errors                                    │
 │                                                                 │
-│  PERMANENT (Retry won't help)                                  │
+│  PERMANENT (Don't retry)                                       │
 │  ├── 404 Not found                                             │
-│  ├── 410 Gone                                                  │
-│  ├── 401/403 Auth required                                     │
-│  └── Invalid URL                                               │
+│  ├── 403 Forbidden (blocked)                                   │
+│  ├── 401 Unauthorized                                          │
+│  └── Invalid content/parsing error                             │
 │                                                                 │
-│  STRUCTURAL (Site changed)                                     │
-│  ├── Selector not found                                        │
-│  ├── Unexpected data format                                    │
-│  └── New anti-bot measures                                     │
-│                                                                 │
-│  SYSTEM (Infrastructure issues)                                │
-│  ├── Out of memory                                             │
-│  ├── Disk full                                                 │
-│  ├── Database connection lost                                  │
-│  └── Worker crash                                              │
+│  PARTIAL (Retry with modification)                             │
+│  ├── CAPTCHA required                                          │
+│  ├── Login required                                            │
+│  └── Different page structure                                  │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -49,126 +44,98 @@ Failures are inevitable. Networks drop, sites go down, HTML changes, and rate li
 import time
 import random
 from functools import wraps
-from typing import Tuple, Type
 
-def retry_with_backoff(
-    max_retries: int = 3,
-    base_delay: float = 1.0,
-    max_delay: float = 60.0,
-    exponential_base: float = 2,
-    jitter: bool = True,
-    retryable_exceptions: Tuple[Type[Exception], ...] = (Exception,)
-):
+def retry_with_backoff(max_retries=3, base_delay=1, max_delay=60, 
+                       exponential_base=2, jitter=True):
     """Decorator for retry with exponential backoff."""
     
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            last_exception = None
+            retries = 0
             
-            for attempt in range(max_retries + 1):
+            while True:
                 try:
                     return func(*args, **kwargs)
-                except retryable_exceptions as e:
-                    last_exception = e
                     
-                    if attempt == max_retries:
-                        raise
+                except RetryableError as e:
+                    retries += 1
+                    
+                    if retries > max_retries:
+                        raise MaxRetriesExceeded(f"Failed after {max_retries} retries") from e
                     
                     # Calculate delay
-                    delay = min(base_delay * (exponential_base ** attempt), max_delay)
+                    delay = min(base_delay * (exponential_base ** retries), max_delay)
                     
                     # Add jitter to prevent thundering herd
                     if jitter:
                         delay = delay * (0.5 + random.random())
                     
-                    print(f"Attempt {attempt + 1} failed: {e}. Retrying in {delay:.1f}s")
+                    print(f"Retry {retries}/{max_retries} after {delay:.1f}s: {e}")
                     time.sleep(delay)
-            
-            raise last_exception
+                    
+                except PermanentError:
+                    raise  # Don't retry permanent errors
         
         return wrapper
     return decorator
 
+# Define exception types
+class RetryableError(Exception):
+    """Error that should be retried."""
+    pass
+
+class PermanentError(Exception):
+    """Error that should not be retried."""
+    pass
+
+class MaxRetriesExceeded(Exception):
+    """All retries exhausted."""
+    pass
+
 # Usage
-@retry_with_backoff(
-    max_retries=3,
-    base_delay=1.0,
-    retryable_exceptions=(requests.exceptions.Timeout, requests.exceptions.ConnectionError)
-)
-def fetch_url(url: str):
+@retry_with_backoff(max_retries=5, base_delay=2)
+def fetch_url(url):
     response = requests.get(url, timeout=30)
-    response.raise_for_status()
+    
+    if response.status_code == 429:
+        raise RetryableError("Rate limited")
+    if response.status_code in (502, 503, 504):
+        raise RetryableError(f"Server error: {response.status_code}")
+    if response.status_code == 404:
+        raise PermanentError("Page not found")
+    
     return response
 ```
 
-### Status Code Aware Retry
+### Tenacity Library
 
 ```python
-from dataclasses import dataclass
-from typing import Set
+from tenacity import (
+    retry, stop_after_attempt, wait_exponential,
+    retry_if_exception_type, before_sleep_log
+)
+import logging
 
-@dataclass
-class RetryPolicy:
-    """Retry policy based on status codes."""
-    retryable_codes: Set[int] = None
-    permanent_failure_codes: Set[int] = None
-    max_retries: int = 3
-    
-    def __post_init__(self):
-        self.retryable_codes = self.retryable_codes or {429, 500, 502, 503, 504}
-        self.permanent_failure_codes = self.permanent_failure_codes or {400, 401, 403, 404, 410}
-    
-    def should_retry(self, status_code: int, attempt: int) -> bool:
-        if attempt >= self.max_retries:
-            return False
-        if status_code in self.permanent_failure_codes:
-            return False
-        return status_code in self.retryable_codes
-    
-    def get_retry_delay(self, status_code: int, attempt: int, 
-                        response_headers: dict = None) -> float:
-        # Respect Retry-After header
-        if response_headers and 'Retry-After' in response_headers:
-            try:
-                return float(response_headers['Retry-After'])
-            except ValueError:
-                pass
-        
-        # Longer delay for rate limiting
-        if status_code == 429:
-            return min(30 * (2 ** attempt), 300)
-        
-        # Standard exponential backoff
-        return min(1 * (2 ** attempt), 60)
+logger = logging.getLogger(__name__)
 
-def fetch_with_policy(url: str, policy: RetryPolicy = None):
-    """Fetch URL with retry policy."""
-    policy = policy or RetryPolicy()
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=2, max=60),
+    retry=retry_if_exception_type(RetryableError),
+    before_sleep=before_sleep_log(logger, logging.WARNING)
+)
+def fetch_with_tenacity(url):
+    response = requests.get(url, timeout=30)
     
-    for attempt in range(policy.max_retries + 1):
-        try:
-            response = requests.get(url, timeout=30)
-            
-            if response.ok:
-                return response
-            
-            if not policy.should_retry(response.status_code, attempt):
-                response.raise_for_status()
-            
-            delay = policy.get_retry_delay(
-                response.status_code, 
-                attempt,
-                dict(response.headers)
-            )
-            time.sleep(delay)
-            
-        except requests.exceptions.RequestException as e:
-            if attempt == policy.max_retries:
-                raise
-            time.sleep(policy.get_retry_delay(0, attempt))
+    if response.status_code == 429:
+        # Check for Retry-After header
+        retry_after = response.headers.get('Retry-After')
+        if retry_after:
+            time.sleep(int(retry_after))
+        raise RetryableError("Rate limited")
     
-    raise Exception(f"Max retries exceeded for {url}")
+    return response
 ```
 
 ---
@@ -178,8 +145,8 @@ def fetch_with_policy(url: str, policy: RetryPolicy = None):
 Prevent cascading failures by stopping requests to failing services.
 
 ```python
-from enum import Enum
 from datetime import datetime, timedelta
+from enum import Enum
 from threading import Lock
 
 class CircuitState(Enum):
@@ -190,30 +157,27 @@ class CircuitState(Enum):
 class CircuitBreaker:
     """Circuit breaker pattern implementation."""
     
-    def __init__(self, 
-                 failure_threshold: int = 5,
-                 recovery_timeout: float = 30.0,
-                 half_open_max_calls: int = 3):
+    def __init__(self, failure_threshold=5, recovery_timeout=60,
+                 half_open_max_calls=3):
         self.failure_threshold = failure_threshold
-        self.recovery_timeout = recovery_timeout
+        self.recovery_timeout = timedelta(seconds=recovery_timeout)
         self.half_open_max_calls = half_open_max_calls
         
         self.state = CircuitState.CLOSED
-        self.failure_count = 0
-        self.success_count = 0
+        self.failures = 0
         self.last_failure_time = None
         self.half_open_calls = 0
-        self._lock = Lock()
+        self.lock = Lock()
     
     def can_execute(self) -> bool:
         """Check if request can proceed."""
-        with self._lock:
+        with self.lock:
             if self.state == CircuitState.CLOSED:
                 return True
             
             if self.state == CircuitState.OPEN:
                 # Check if recovery timeout passed
-                if self._recovery_timeout_passed():
+                if datetime.now() - self.last_failure_time > self.recovery_timeout:
                     self.state = CircuitState.HALF_OPEN
                     self.half_open_calls = 0
                     return True
@@ -229,282 +193,241 @@ class CircuitBreaker:
     
     def record_success(self):
         """Record successful request."""
-        with self._lock:
+        with self.lock:
             if self.state == CircuitState.HALF_OPEN:
-                self.success_count += 1
-                if self.success_count >= self.half_open_max_calls:
-                    self._reset()
-            else:
-                self.failure_count = 0
+                self.state = CircuitState.CLOSED
+            self.failures = 0
     
     def record_failure(self):
         """Record failed request."""
-        with self._lock:
-            self.failure_count += 1
+        with self.lock:
+            self.failures += 1
             self.last_failure_time = datetime.now()
             
             if self.state == CircuitState.HALF_OPEN:
-                self._trip()
-            elif self.failure_count >= self.failure_threshold:
-                self._trip()
-    
-    def _trip(self):
-        """Trip the circuit breaker."""
-        self.state = CircuitState.OPEN
-        self.success_count = 0
-    
-    def _reset(self):
-        """Reset the circuit breaker."""
-        self.state = CircuitState.CLOSED
-        self.failure_count = 0
-        self.success_count = 0
-    
-    def _recovery_timeout_passed(self) -> bool:
-        if self.last_failure_time is None:
-            return True
-        return datetime.now() - self.last_failure_time > timedelta(seconds=self.recovery_timeout)
+                self.state = CircuitState.OPEN
+            elif self.failures >= self.failure_threshold:
+                self.state = CircuitState.OPEN
 
-# Usage with per-domain circuit breakers
-class DomainCircuitBreakers:
-    def __init__(self):
-        self.breakers = {}
-        self._lock = Lock()
-    
-    def get_breaker(self, domain: str) -> CircuitBreaker:
-        with self._lock:
-            if domain not in self.breakers:
-                self.breakers[domain] = CircuitBreaker()
-            return self.breakers[domain]
+# Per-domain circuit breakers
+circuit_breakers = {}
 
-breakers = DomainCircuitBreakers()
+def get_circuit_breaker(domain: str) -> CircuitBreaker:
+    if domain not in circuit_breakers:
+        circuit_breakers[domain] = CircuitBreaker()
+    return circuit_breakers[domain]
 
 def fetch_with_circuit_breaker(url: str):
     domain = urlparse(url).netloc
-    breaker = breakers.get_breaker(domain)
+    cb = get_circuit_breaker(domain)
     
-    if not breaker.can_execute():
-        raise Exception(f"Circuit open for {domain}")
+    if not cb.can_execute():
+        raise CircuitOpenError(f"Circuit open for {domain}")
     
     try:
         response = requests.get(url, timeout=30)
-        response.raise_for_status()
-        breaker.record_success()
+        if response.status_code < 500:
+            cb.record_success()
+        else:
+            cb.record_failure()
         return response
     except Exception as e:
-        breaker.record_failure()
+        cb.record_failure()
         raise
 ```
 
 ---
 
-## 3. Checkpointing
+## 3. Checkpoint & Resume
 
-Save progress to resume after failures.
+Save progress to resume after crashes.
 
 ```python
 import json
 from pathlib import Path
-from datetime import datetime
+from dataclasses import dataclass, asdict
 from typing import Set, Optional
 
-class Checkpoint:
-    """Save and restore crawl progress."""
+@dataclass
+class CrawlCheckpoint:
+    """Checkpoint for crawl state."""
+    completed_urls: Set[str]
+    pending_urls: Set[str]
+    failed_urls: dict  # url -> error
+    last_url: Optional[str]
+    items_scraped: int
     
-    def __init__(self, checkpoint_file: str = 'checkpoint.json'):
+    def to_dict(self):
+        return {
+            'completed_urls': list(self.completed_urls),
+            'pending_urls': list(self.pending_urls),
+            'failed_urls': self.failed_urls,
+            'last_url': self.last_url,
+            'items_scraped': self.items_scraped
+        }
+    
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            completed_urls=set(data['completed_urls']),
+            pending_urls=set(data['pending_urls']),
+            failed_urls=data['failed_urls'],
+            last_url=data['last_url'],
+            items_scraped=data['items_scraped']
+        )
+
+class CheckpointManager:
+    """Manage crawl checkpoints."""
+    
+    def __init__(self, checkpoint_file: str, save_interval: int = 100):
         self.checkpoint_file = Path(checkpoint_file)
-        self.completed_urls: Set[str] = set()
-        self.pending_urls: list = []
-        self.metadata: dict = {}
-        self._load()
+        self.save_interval = save_interval
+        self.checkpoint = self._load_or_create()
+        self.operations_since_save = 0
     
-    def _load(self):
-        """Load checkpoint from file."""
+    def _load_or_create(self) -> CrawlCheckpoint:
+        """Load existing checkpoint or create new."""
         if self.checkpoint_file.exists():
             with open(self.checkpoint_file) as f:
                 data = json.load(f)
-                self.completed_urls = set(data.get('completed', []))
-                self.pending_urls = data.get('pending', [])
-                self.metadata = data.get('metadata', {})
-    
-    def save(self):
-        """Save checkpoint to file."""
-        data = {
-            'completed': list(self.completed_urls),
-            'pending': self.pending_urls,
-            'metadata': self.metadata,
-            'saved_at': datetime.now().isoformat()
-        }
+                print(f"Resuming from checkpoint: {data['items_scraped']} items scraped")
+                return CrawlCheckpoint.from_dict(data)
         
-        # Atomic write
-        temp_file = self.checkpoint_file.with_suffix('.tmp')
-        with open(temp_file, 'w') as f:
-            json.dump(data, f)
-        temp_file.rename(self.checkpoint_file)
+        return CrawlCheckpoint(
+            completed_urls=set(),
+            pending_urls=set(),
+            failed_urls={},
+            last_url=None,
+            items_scraped=0
+        )
+    
+    def save(self, force: bool = False):
+        """Save checkpoint to disk."""
+        self.operations_since_save += 1
+        
+        if force or self.operations_since_save >= self.save_interval:
+            with open(self.checkpoint_file, 'w') as f:
+                json.dump(self.checkpoint.to_dict(), f)
+            self.operations_since_save = 0
     
     def mark_completed(self, url: str):
         """Mark URL as completed."""
-        self.completed_urls.add(url)
-        if url in self.pending_urls:
-            self.pending_urls.remove(url)
+        self.checkpoint.completed_urls.add(url)
+        self.checkpoint.pending_urls.discard(url)
+        self.checkpoint.last_url = url
+        self.checkpoint.items_scraped += 1
+        self.save()
+    
+    def mark_failed(self, url: str, error: str):
+        """Mark URL as failed."""
+        self.checkpoint.failed_urls[url] = error
+        self.checkpoint.pending_urls.discard(url)
+        self.save()
     
     def add_pending(self, urls: list):
-        """Add URLs to pending list."""
+        """Add URLs to pending."""
         for url in urls:
-            if url not in self.completed_urls and url not in self.pending_urls:
-                self.pending_urls.append(url)
+            if url not in self.checkpoint.completed_urls:
+                self.checkpoint.pending_urls.add(url)
     
     def get_next_url(self) -> Optional[str]:
         """Get next URL to process."""
-        while self.pending_urls:
-            url = self.pending_urls[0]
-            if url not in self.completed_urls:
-                return url
-            self.pending_urls.pop(0)
+        if self.checkpoint.pending_urls:
+            return self.checkpoint.pending_urls.pop()
         return None
     
     def is_completed(self, url: str) -> bool:
         """Check if URL already processed."""
-        return url in self.completed_urls
+        return url in self.checkpoint.completed_urls
+    
+    def clear(self):
+        """Clear checkpoint (start fresh)."""
+        if self.checkpoint_file.exists():
+            self.checkpoint_file.unlink()
+        self.checkpoint = CrawlCheckpoint(set(), set(), {}, None, 0)
 
 # Usage
-checkpoint = Checkpoint('my_crawl_checkpoint.json')
+checkpoint = CheckpointManager('crawl_checkpoint.json')
 
-# Add seed URLs
+# Add seed URLs (skips already completed)
 checkpoint.add_pending(seed_urls)
 
-# Process with checkpointing
 while True:
     url = checkpoint.get_next_url()
     if not url:
         break
     
     try:
-        result = scrape(url)
+        data = scrape(url)
+        save_data(data)
         checkpoint.mark_completed(url)
         
         # Add discovered URLs
-        checkpoint.add_pending(result.get('links', []))
+        checkpoint.add_pending(data.get('links', []))
         
-        # Save periodically
-        if len(checkpoint.completed_urls) % 100 == 0:
-            checkpoint.save()
-            
     except Exception as e:
-        print(f"Failed: {url} - {e}")
-        # Don't mark as completed, will retry on restart
+        checkpoint.mark_failed(url, str(e))
 
 # Final save
-checkpoint.save()
+checkpoint.save(force=True)
 ```
 
 ---
 
 ## 4. Dead Letter Queue
 
-Handle permanently failing items.
+Handle persistently failing items.
 
 ```python
-from dataclasses import dataclass
-from datetime import datetime
-from typing import List, Optional
-import json
-
-@dataclass
-class FailedItem:
-    url: str
-    error: str
-    attempts: int
-    first_failure: datetime
-    last_failure: datetime
-    metadata: dict = None
-
-class DeadLetterQueue:
-    """Store and manage permanently failed items."""
+class DeadLetterHandler:
+    """Handle items that repeatedly fail."""
     
-    def __init__(self, storage_path: str = 'dlq.jsonl'):
-        self.storage_path = Path(storage_path)
-        self.items: List[FailedItem] = []
-        self._load()
+    def __init__(self, max_retries: int = 3):
+        self.max_retries = max_retries
+        self.retry_counts = {}
+        self.dead_letters = []
     
-    def _load(self):
-        """Load DLQ from file."""
-        if self.storage_path.exists():
-            with open(self.storage_path) as f:
-                for line in f:
-                    data = json.loads(line)
-                    self.items.append(FailedItem(
-                        url=data['url'],
-                        error=data['error'],
-                        attempts=data['attempts'],
-                        first_failure=datetime.fromisoformat(data['first_failure']),
-                        last_failure=datetime.fromisoformat(data['last_failure']),
-                        metadata=data.get('metadata')
-                    ))
+    def should_retry(self, url: str) -> bool:
+        """Check if URL should be retried."""
+        count = self.retry_counts.get(url, 0)
+        return count < self.max_retries
     
-    def add(self, url: str, error: str, attempts: int = 1, metadata: dict = None):
-        """Add item to DLQ."""
-        now = datetime.now()
+    def record_failure(self, url: str, error: str):
+        """Record a failure."""
+        self.retry_counts[url] = self.retry_counts.get(url, 0) + 1
         
-        # Check if URL already in DLQ
-        existing = next((item for item in self.items if item.url == url), None)
-        
-        if existing:
-            existing.error = error
-            existing.attempts += attempts
-            existing.last_failure = now
-        else:
-            self.items.append(FailedItem(
-                url=url,
-                error=error,
-                attempts=attempts,
-                first_failure=now,
-                last_failure=now,
-                metadata=metadata
-            ))
-        
-        self._save_item(self.items[-1])
+        if not self.should_retry(url):
+            self.dead_letters.append({
+                'url': url,
+                'error': error,
+                'attempts': self.retry_counts[url],
+                'timestamp': datetime.now().isoformat()
+            })
     
-    def _save_item(self, item: FailedItem):
-        """Append item to storage."""
-        with open(self.storage_path, 'a') as f:
-            data = {
-                'url': item.url,
-                'error': item.error,
-                'attempts': item.attempts,
-                'first_failure': item.first_failure.isoformat(),
-                'last_failure': item.last_failure.isoformat(),
-                'metadata': item.metadata
-            }
-            f.write(json.dumps(data) + '\n')
+    def get_dead_letters(self) -> list:
+        """Get all dead letters."""
+        return self.dead_letters
     
-    def get_retriable(self, max_attempts: int = 10) -> List[FailedItem]:
-        """Get items that could be retried."""
-        return [item for item in self.items if item.attempts < max_attempts]
+    def save_dead_letters(self, filepath: str):
+        """Save dead letters to file."""
+        with open(filepath, 'w') as f:
+            json.dump(self.dead_letters, f, indent=2)
     
-    def get_stats(self) -> dict:
-        """Get DLQ statistics."""
-        if not self.items:
-            return {'total': 0}
+    def retry_dead_letters(self, scrape_func):
+        """Attempt to reprocess dead letters."""
+        recovered = []
+        still_dead = []
         
-        errors = {}
-        for item in self.items:
-            error_type = item.error.split(':')[0]
-            errors[error_type] = errors.get(error_type, 0) + 1
+        for item in self.dead_letters:
+            try:
+                scrape_func(item['url'])
+                recovered.append(item['url'])
+            except Exception as e:
+                item['last_error'] = str(e)
+                still_dead.append(item)
         
-        return {
-            'total': len(self.items),
-            'by_error': errors,
-            'oldest': min(item.first_failure for item in self.items).isoformat(),
-            'newest': max(item.last_failure for item in self.items).isoformat()
-        }
-
-# Usage
-dlq = DeadLetterQueue()
-
-try:
-    result = scrape(url)
-except PermanentError as e:
-    dlq.add(url, str(e), metadata={'source': 'main_crawler'})
+        self.dead_letters = still_dead
+        return recovered
 ```
 
 ---
@@ -513,70 +436,54 @@ except PermanentError as e:
 
 ```python
 import signal
-import threading
-from queue import Queue, Empty
+import sys
+from threading import Event
 
-class GracefulScraper:
-    """Scraper with graceful shutdown support."""
+class GracefulShutdown:
+    """Handle graceful shutdown on signals."""
     
     def __init__(self):
-        self.shutdown_event = threading.Event()
-        self.active_requests = 0
-        self.request_lock = threading.Lock()
-        self.checkpoint = Checkpoint()
+        self.shutdown_event = Event()
+        self.checkpoint_manager = None
         
         # Register signal handlers
-        signal.signal(signal.SIGTERM, self._handle_shutdown)
-        signal.signal(signal.SIGINT, self._handle_shutdown)
+        signal.signal(signal.SIGTERM, self._handle_signal)
+        signal.signal(signal.SIGINT, self._handle_signal)
     
-    def _handle_shutdown(self, signum, frame):
+    def _handle_signal(self, signum, frame):
         """Handle shutdown signal."""
-        print("Shutdown signal received, finishing active requests...")
+        print(f"\nReceived signal {signum}, initiating graceful shutdown...")
         self.shutdown_event.set()
     
-    def should_continue(self) -> bool:
-        """Check if should continue processing."""
-        return not self.shutdown_event.is_set()
+    def should_stop(self) -> bool:
+        """Check if should stop."""
+        return self.shutdown_event.is_set()
     
-    def run(self, urls: list):
-        """Run scraper with graceful shutdown."""
-        self.checkpoint.add_pending(urls)
-        
-        while self.should_continue():
-            url = self.checkpoint.get_next_url()
-            if not url:
-                break
-            
-            with self.request_lock:
-                self.active_requests += 1
-            
-            try:
-                result = self._scrape(url)
-                self.checkpoint.mark_completed(url)
-                
-                if result.get('links'):
-                    self.checkpoint.add_pending(result['links'])
-                    
-            except Exception as e:
-                print(f"Error: {url} - {e}")
-            finally:
-                with self.request_lock:
-                    self.active_requests -= 1
-        
-        # Wait for active requests
-        print(f"Waiting for {self.active_requests} active requests...")
-        while self.active_requests > 0:
-            time.sleep(0.1)
-        
-        # Save checkpoint
-        self.checkpoint.save()
-        print(f"Saved checkpoint with {len(self.checkpoint.completed_urls)} completed URLs")
+    def set_checkpoint_manager(self, manager: CheckpointManager):
+        """Set checkpoint manager for saving on shutdown."""
+        self.checkpoint_manager = manager
     
-    def _scrape(self, url: str) -> dict:
-        """Scrape single URL."""
-        response = requests.get(url, timeout=30)
-        # ... parsing logic
-        return {'data': {}, 'links': []}
+    def run_with_shutdown(self, work_func):
+        """Run work function with graceful shutdown."""
+        try:
+            while not self.should_stop():
+                work_func()
+        finally:
+            print("Saving final checkpoint...")
+            if self.checkpoint_manager:
+                self.checkpoint_manager.save(force=True)
+            print("Shutdown complete")
+
+# Usage
+shutdown = GracefulShutdown()
+shutdown.set_checkpoint_manager(checkpoint)
+
+def do_work():
+    url = checkpoint.get_next_url()
+    if url:
+        scrape(url)
+
+shutdown.run_with_shutdown(do_work)
 ```
 
 ---
@@ -584,64 +491,57 @@ class GracefulScraper:
 ## 6. Health Checks
 
 ```python
-from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import List
-
-@dataclass  
-class HealthCheck:
-    name: str
-    check_func: callable
-    timeout: float = 5.0
 
 class HealthChecker:
-    """System health monitoring."""
+    """Monitor scraper health."""
     
     def __init__(self):
-        self.checks: List[HealthCheck] = []
-        self.last_results = {}
+        self.last_success = None
+        self.consecutive_failures = 0
+        self.total_requests = 0
+        self.total_failures = 0
     
-    def add_check(self, name: str, check_func: callable, timeout: float = 5.0):
-        self.checks.append(HealthCheck(name, check_func, timeout))
+    def record_success(self):
+        self.last_success = datetime.now()
+        self.consecutive_failures = 0
+        self.total_requests += 1
     
-    def run_checks(self) -> dict:
-        """Run all health checks."""
-        results = {'healthy': True, 'checks': {}}
+    def record_failure(self):
+        self.consecutive_failures += 1
+        self.total_requests += 1
+        self.total_failures += 1
+    
+    def is_healthy(self) -> dict:
+        """Check overall health."""
+        checks = {}
         
-        for check in self.checks:
-            try:
-                start = time.time()
-                check.check_func()
-                duration = time.time() - start
-                
-                results['checks'][check.name] = {
-                    'status': 'healthy',
-                    'duration': round(duration, 3)
-                }
-            except Exception as e:
-                results['healthy'] = False
-                results['checks'][check.name] = {
-                    'status': 'unhealthy',
-                    'error': str(e)
-                }
+        # Check recent success
+        if self.last_success:
+            time_since_success = datetime.now() - self.last_success
+            checks['recent_success'] = time_since_success < timedelta(minutes=5)
+        else:
+            checks['recent_success'] = False
         
-        self.last_results = results
-        return results
-
-# Define health checks
-health = HealthChecker()
-
-health.add_check('redis', lambda: redis_client.ping())
-health.add_check('database', lambda: db.execute('SELECT 1'))
-health.add_check('target_site', lambda: requests.head('https://example.com', timeout=5))
-health.add_check('disk_space', lambda: check_disk_space_above(10))  # 10% minimum
-
-# Run periodically or expose via HTTP
-@app.route('/health')
-def health_endpoint():
-    results = health.run_checks()
-    status = 200 if results['healthy'] else 503
-    return jsonify(results), status
+        # Check consecutive failures
+        checks['not_failing'] = self.consecutive_failures < 10
+        
+        # Check error rate
+        if self.total_requests > 0:
+            error_rate = self.total_failures / self.total_requests
+            checks['error_rate_ok'] = error_rate < 0.1
+        else:
+            checks['error_rate_ok'] = True
+        
+        return {
+            'healthy': all(checks.values()),
+            'checks': checks,
+            'stats': {
+                'consecutive_failures': self.consecutive_failures,
+                'total_requests': self.total_requests,
+                'total_failures': self.total_failures
+            }
+        }
 ```
 
 ---
@@ -650,12 +550,11 @@ def health_endpoint():
 
 | Strategy | Use Case | Complexity |
 |----------|----------|------------|
-| Exponential Backoff | Transient failures | Low |
-| Circuit Breaker | Prevent cascading | Medium |
-| Checkpointing | Resume after crash | Medium |
-| Dead Letter Queue | Track failures | Medium |
-| Graceful Shutdown | Clean stops | Medium |
-| Health Checks | Monitoring | Low |
+| Retry + Backoff | Transient errors | Low |
+| Circuit Breaker | Cascading failures | Medium |
+| Checkpointing | Crash recovery | Medium |
+| Dead Letter Queue | Persistent failures | Medium |
+| Graceful Shutdown | Clean termination | Low |
 
 ---
 
