@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "product.json",
+  "title": "Product",
+  "description": "E-commerce product schema",
+  "allOf": [
+    { "$ref": "base_item.json" }
+  ],
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Product name/title"
+    },
+    "price": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Current price"
+    },
+    "original_price": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Original price before discount"
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$",
+      "default": "USD"
+    },
+    "brand": {
+      "type": "string"
+    },
+    "sku": {
+      "type": "string",
+      "description": "Stock keeping unit"
+    },
+    "upc": {
+      "type": "string",
+      "description": "Universal product code"
+    },
+    "description": {
+      "type": "string"
+    },
+    "categories": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "images": {
+      "type": "array",
+      "items": { "type": "string", "format": "uri" }
+    },
+    "availability": {
+      "type": "string",
+      "enum": ["in_stock", "out_of_stock", "pre_order", "limited", "unknown"]
+    },
+    "rating": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 5
+    },
+    "review_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "specifications": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "required": ["name"]
+}
