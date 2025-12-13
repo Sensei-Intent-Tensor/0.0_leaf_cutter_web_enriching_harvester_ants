@@ -1,514 +1,187 @@
 # Proxies & IP Rotation
 
-> **Distributing Your Requests Across Multiple Identities**
+> **Scaling Scraping Through Multiple Identities**
 
-When rate limiting isn't enough, or when you've been IP banned, proxies let you appear as different users from different locations.
-
----
-
-## Why Use Proxies?
-
-### Problems Proxies Solve
-
-| Problem | Proxy Solution |
-|---------|----------------|
-| IP banned | Use different IP |
-| Rate limited per IP | Distribute across IPs |
-| Geo-restricted content | Use IP from allowed region |
-| Identity tracking | Change fingerprint |
-| ISP blocks | Route around restrictions |
-
-### The Basic Concept
-
-```
-Without Proxy:
-Your IP ──────────────────────▶ Target Site
-(Blocked!)
-
-With Proxy:
-Your IP ──▶ Proxy Server ──────▶ Target Site
-            (Different IP)       (Sees proxy IP)
-```
+Your IP address is your identity online. When scraping at scale, a single IP quickly gets rate-limited or blocked. Proxies let you distribute requests across many IP addresses.
 
 ---
 
-## 1. Proxy Types
-
-### Forward Proxy (What We Use)
+## Why Use Proxies
 
 ```
-Client ──▶ Proxy ──▶ Internet
+Single IP:
+┌─────────────┐                    ┌─────────────┐
+│   Scraper   │───── All reqs ────▶│   Target    │
+│  1.2.3.4    │                    │   Server    │
+└─────────────┘                    └─────────────┘
+     │                                    │
+     └──── Gets blocked after N requests ─┘
+
+With Proxies:
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Scraper   │────▶│  Proxy A    │────▶│             │
+│             │     │  5.6.7.8    │     │   Target    │
+│             │────▶│  Proxy B    │────▶│   Server    │
+│             │     │  9.10.11.12 │     │             │
+│             │────▶│  Proxy C    │────▶│             │
+│             │     │  13.14.15.16│     │             │
+└─────────────┘     └─────────────┘     └─────────────┘
+                         │
+                         └── Each IP has its own rate limit quota
 ```
-
-You know the proxy, the destination doesn't.
-
-### Proxy Categories
-
-| Type | Description | Detection Risk | Cost | Speed |
-|------|-------------|----------------|------|-------|
-| **Datacenter** | Server IPs from cloud providers | High | Low | Fast |
-| **Residential** | Real home IPs | Low | High | Medium |
-| **Mobile** | Cell carrier IPs | Very Low | Very High | Slow |
-| **ISP** | Residential IPs in datacenters | Low | Medium | Fast |
-
-### Datacenter Proxies
-
-- IPs from AWS, Google Cloud, DigitalOcean, etc.
-- Easy to detect (IP ranges are known)
-- Fast and cheap
-- Good for sites without strong anti-bot
-
-```python
-# Datacenter proxy
-proxy = "http://123.45.67.89:8080"
-```
-
-### Residential Proxies
-
-- IPs from real home internet connections
-- Very hard to detect
-- Slower and more expensive
-- Essential for heavily protected sites
-
-```python
-# Residential proxy (usually via service)
-proxy = "http://user:pass@gate.smartproxy.com:7777"
-```
-
-### Mobile Proxies
-
-- IPs from cellular carriers (4G/5G)
-- Highest trust level (shared by many real users)
-- Very expensive
-- Use for most difficult targets
 
 ---
 
-## 2. Proxy Protocols
+## Types of Proxies
+
+### 1. Datacenter Proxies
+
+IP addresses from data centers (AWS, Google Cloud, etc.)
+
+| Pros | Cons |
+|------|------|
+| Fast | Easily detected |
+| Cheap | Often pre-blocked |
+| Reliable uptime | Not residential |
+| Unlimited bandwidth | Same IP ranges as other bots |
+
+**Best for**: High volume, less protected sites
+
+### 2. Residential Proxies
+
+IP addresses from real ISPs (Comcast, AT&T, etc.)
+
+| Pros | Cons |
+|------|------|
+| Look like real users | Expensive |
+| Hard to detect | Slower |
+| Bypass geo-restrictions | May be unstable |
+| Fresh IPs | Bandwidth limited |
+
+**Best for**: Protected sites, geo-specific scraping
+
+### 3. Mobile Proxies
+
+IP addresses from mobile carriers (4G/5G)
+
+| Pros | Cons |
+|------|------|
+| Highest trust level | Most expensive |
+| Shared IPs are normal | Very limited availability |
+| Rarely blocked | Slowest |
+
+**Best for**: Most aggressive anti-bot systems
+
+### 4. ISP Proxies
+
+Static residential IPs (dedicated)
+
+| Pros | Cons |
+|------|------|
+| Stable, same IP | Expensive |
+| Residential trust | Limited locations |
+| Fast | Can still be fingerprinted |
+
+**Best for**: When you need consistent identity
+
+### Comparison Table
+
+| Type | Trust Level | Speed | Cost | Best Use |
+|------|-------------|-------|------|----------|
+| **Datacenter** | Low | Fast | $ | Bulk scraping |
+| **Residential** | High | Medium | $$$ | Protected sites |
+| **Mobile** | Highest | Slow | $$$$ | Hardest targets |
+| **ISP/Static** | High | Fast | $$$ | Account work |
+
+---
+
+## Proxy Protocols
 
 ### HTTP Proxy
 
+Most common, works for HTTP/HTTPS traffic.
+
 ```python
 proxies = {
-    "http": "http://proxy.example.com:8080",
-    "https": "http://proxy.example.com:8080",
+    "http": "http://user:pass@proxy.example.com:8080",
+    "https": "http://user:pass@proxy.example.com:8080",
 }
+
 response = requests.get(url, proxies=proxies)
-```
-
-### HTTPS/CONNECT Proxy
-
-Same as HTTP proxy but for HTTPS traffic. Uses CONNECT method.
-
-```python
-# Same syntax, proxy handles HTTPS
-proxies = {
-    "http": "http://proxy.example.com:8080",
-    "https": "http://proxy.example.com:8080",
-}
 ```
 
 ### SOCKS5 Proxy
 
-Lower-level protocol, works for any traffic.
+Lower level, more versatile, supports UDP.
 
 ```python
-# Requires requests[socks]
+# Requires requests[socks] or PySocks
 proxies = {
-    "http": "socks5://proxy.example.com:1080",
-    "https": "socks5://proxy.example.com:1080",
+    "http": "socks5://user:pass@proxy.example.com:1080",
+    "https": "socks5://user:pass@proxy.example.com:1080",
 }
+
 response = requests.get(url, proxies=proxies)
 ```
 
-### Authenticated Proxy
+### Comparison
 
-```python
-proxies = {
-    "http": "http://username:password@proxy.example.com:8080",
-    "https": "http://username:password@proxy.example.com:8080",
-}
-```
-
----
-
-## 3. Proxy Rotation Strategies
-
-### Round-Robin Rotation
-
-```python
-import itertools
-
-class ProxyRotator:
-    def __init__(self, proxies):
-        self.proxies = proxies
-        self.cycle = itertools.cycle(proxies)
-    
-    def get_proxy(self):
-        proxy = next(self.cycle)
-        return {"http": proxy, "https": proxy}
-
-# Usage
-rotator = ProxyRotator([
-    "http://proxy1.example.com:8080",
-    "http://proxy2.example.com:8080",
-    "http://proxy3.example.com:8080",
-])
-
-for url in urls:
-    response = requests.get(url, proxies=rotator.get_proxy())
-```
-
-### Random Selection
-
-```python
-import random
-
-class RandomProxySelector:
-    def __init__(self, proxies):
-        self.proxies = proxies
-    
-    def get_proxy(self):
-        proxy = random.choice(self.proxies)
-        return {"http": proxy, "https": proxy}
-```
-
-### Weighted Selection (Quality-Based)
-
-```python
-import random
-
-class WeightedProxySelector:
-    def __init__(self, proxies_with_weights):
-        """
-        proxies_with_weights: [(proxy, weight), ...]
-        Higher weight = more likely to be selected
-        """
-        self.proxies = proxies_with_weights
-    
-    def get_proxy(self):
-        proxies, weights = zip(*self.proxies)
-        proxy = random.choices(proxies, weights=weights, k=1)[0]
-        return {"http": proxy, "https": proxy}
-
-# Usage
-selector = WeightedProxySelector([
-    ("http://fast-proxy:8080", 10),   # Fast, use more
-    ("http://slow-proxy:8080", 2),    # Slow, use less
-    ("http://premium-proxy:8080", 5), # Balance
-])
-```
-
-### Sticky Sessions (Same Proxy per Domain)
-
-```python
-from urllib.parse import urlparse
-
-class StickyProxySelector:
-    """Use same proxy for same domain (maintains sessions)."""
-    
-    def __init__(self, proxies):
-        self.proxies = proxies
-        self.domain_map = {}
-    
-    def get_proxy(self, url):
-        domain = urlparse(url).netloc
-        
-        if domain not in self.domain_map:
-            self.domain_map[domain] = random.choice(self.proxies)
-        
-        proxy = self.domain_map[domain]
-        return {"http": proxy, "https": proxy}
-```
+| Feature | HTTP Proxy | SOCKS5 Proxy |
+|---------|------------|--------------|
+| Protocol support | HTTP/HTTPS only | Any TCP/UDP |
+| Speed | Fast | Slightly slower |
+| Setup | Simple | Needs library |
+| Use case | Web scraping | General traffic |
 
 ---
 
-## 4. Smart Proxy Management
+## Using Proxies in Python
 
-### Proxy Health Tracking
-
-```python
-import time
-from collections import defaultdict
-
-class SmartProxyManager:
-    def __init__(self, proxies):
-        self.proxies = proxies
-        self.stats = defaultdict(lambda: {
-            "successes": 0,
-            "failures": 0,
-            "last_used": 0,
-            "banned_until": 0,
-        })
-    
-    def get_proxy(self):
-        """Get best available proxy."""
-        now = time.time()
-        available = []
-        
-        for proxy in self.proxies:
-            stat = self.stats[proxy]
-            
-            # Skip if temporarily banned
-            if stat["banned_until"] > now:
-                continue
-            
-            # Calculate score (higher = better)
-            total = stat["successes"] + stat["failures"]
-            if total == 0:
-                score = 0.5  # Unknown, neutral
-            else:
-                score = stat["successes"] / total
-            
-            # Prefer less recently used
-            time_bonus = min(0.2, (now - stat["last_used"]) / 60)
-            
-            available.append((proxy, score + time_bonus))
-        
-        if not available:
-            # All banned, wait for first to unban
-            return None
-        
-        # Select best proxy
-        available.sort(key=lambda x: x[1], reverse=True)
-        proxy = available[0][0]
-        
-        self.stats[proxy]["last_used"] = now
-        return {"http": proxy, "https": proxy}
-    
-    def report_success(self, proxy):
-        self.stats[proxy]["successes"] += 1
-    
-    def report_failure(self, proxy, ban_duration=60):
-        self.stats[proxy]["failures"] += 1
-        
-        # Multiple failures = temporary ban
-        total = self.stats[proxy]["failures"]
-        if total >= 3:
-            self.stats[proxy]["banned_until"] = time.time() + ban_duration
-
-# Usage
-manager = SmartProxyManager(proxy_list)
-
-for url in urls:
-    proxy = manager.get_proxy()
-    if not proxy:
-        time.sleep(60)  # Wait for proxy to recover
-        continue
-    
-    response = requests.get(url, proxies=proxy)
-    
-    if response.status_code == 200:
-        manager.report_success(list(proxy.values())[0])
-    elif response.status_code in [403, 429]:
-        manager.report_failure(list(proxy.values())[0])
-```
-
-### Proxy Pool with Auto-Refresh
-
-```python
-class ProxyPool:
-    """Automatically remove bad proxies and add new ones."""
-    
-    def __init__(self, initial_proxies, proxy_source=None):
-        self.proxies = set(initial_proxies)
-        self.dead_proxies = set()
-        self.proxy_source = proxy_source  # Function to get new proxies
-        self.min_pool_size = 10
-    
-    def get_proxy(self):
-        if len(self.proxies) < self.min_pool_size:
-            self._refresh_pool()
-        
-        proxy = random.choice(list(self.proxies))
-        return {"http": proxy, "https": proxy}
-    
-    def mark_dead(self, proxy):
-        self.proxies.discard(proxy)
-        self.dead_proxies.add(proxy)
-    
-    def _refresh_pool(self):
-        if self.proxy_source:
-            new_proxies = self.proxy_source()
-            # Add new proxies that aren't known dead
-            self.proxies.update(set(new_proxies) - self.dead_proxies)
-```
-
----
-
-## 5. Proxy Services
-
-### Major Providers
-
-| Service | Type | Pricing | Best For |
-|---------|------|---------|----------|
-| **Bright Data** | All types | $$$ | Enterprise |
-| **Smartproxy** | Residential, DC | $$ | Mid-scale |
-| **Oxylabs** | All types | $$$ | Enterprise |
-| **Proxy-Seller** | Datacenter | $ | Budget |
-| **PacketStream** | Residential | $$ | Pay-per-GB |
-| **NetNut** | ISP | $$ | Speed + stealth |
-
-### Rotating Proxy Services
-
-Most services offer a single endpoint that automatically rotates IPs:
-
-```python
-# Smartproxy example - each request gets different IP
-proxy = "http://user:pass@gate.smartproxy.com:7777"
-
-# Bright Data example
-proxy = "http://user:pass@brd.superproxy.io:22225"
-```
-
-### Geo-Targeting
-
-```python
-# Target specific country
-proxy = "http://user:pass@us.smartproxy.com:7777"  # US IPs
-proxy = "http://user:pass@gb.smartproxy.com:7777"  # UK IPs
-
-# Bright Data geo-targeting
-proxy = "http://user-country-us:pass@brd.superproxy.io:22225"
-```
-
-### Session Persistence
-
-```python
-# Keep same IP for multiple requests (session stickiness)
-proxy = "http://user-session-abc123:pass@gate.smartproxy.com:7777"
-
-# All requests with same session ID get same IP
-```
-
----
-
-## 6. Free Proxy Sources
-
-### Warning
-
-Free proxies are:
-- Unreliable (often offline)
-- Slow
-- Potentially malicious (can intercept traffic)
-- Often already banned
-
-**Only use for non-sensitive testing.**
-
-### Free Proxy Lists
+### With requests
 
 ```python
 import requests
 
-def get_free_proxies():
-    """Fetch free proxies from public list. Use with caution!"""
-    response = requests.get(
-        "https://api.proxyscrape.com/v2/?request=getproxies"
-        "&protocol=http&timeout=5000&country=all"
-    )
-    proxies = response.text.strip().split("\n")
-    return [f"http://{p}" for p in proxies]
+# Single proxy
+proxy = "http://user:pass@proxy.example.com:8080"
+proxies = {"http": proxy, "https": proxy}
+
+response = requests.get(url, proxies=proxies)
+
+# Verify proxy is being used
+response = requests.get("https://httpbin.org/ip", proxies=proxies)
+print(response.json())  # Should show proxy IP
 ```
 
-### Validating Free Proxies
+### With requests Session
 
 ```python
-def validate_proxy(proxy, test_url="http://httpbin.org/ip", timeout=5):
-    """Test if proxy works."""
-    try:
-        response = requests.get(
-            test_url,
-            proxies={"http": proxy, "https": proxy},
-            timeout=timeout
-        )
-        return response.status_code == 200
-    except:
-        return False
+session = requests.Session()
+session.proxies = {
+    "http": "http://user:pass@proxy.example.com:8080",
+    "https": "http://user:pass@proxy.example.com:8080",
+}
 
-# Filter to working proxies
-free_proxies = get_free_proxies()
-working_proxies = [p for p in free_proxies if validate_proxy(p)]
+# All requests use proxy
+response = session.get(url)
 ```
 
----
-
-## 7. Proxy Best Practices
-
-### Match Proxy to Headers
+### With aiohttp (Async)
 
 ```python
-# BAD: US proxy with German headers
-proxies = {"http": "http://us-proxy:8080"}
-headers = {"Accept-Language": "de-DE"}  # Mismatch!
+import aiohttp
 
-# GOOD: Consistent identity
-proxies = {"http": "http://us-proxy:8080"}
-headers = {"Accept-Language": "en-US,en;q=0.9"}
+async def fetch_with_proxy(url, proxy):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, proxy=proxy) as response:
+            return await response.text()
+
+# Usage
+proxy = "http://user:pass@proxy.example.com:8080"
+html = await fetch_with_proxy(url, proxy)
 ```
 
-### Warm Up Proxies
-
-```python
-def warm_up_proxy(proxy, target_domain):
-    """Visit site naturally before scraping."""
-    session = requests.Session()
-    
-    # Visit homepage first
-    session.get(
-        f"https://{target_domain}/",
-        proxies=proxy,
-        headers=get_headers()
-    )
-    time.sleep(random.uniform(1, 3))
-    
-    # Browse a few pages
-    for path in ["/about", "/products"]:
-        session.get(
-            f"https://{target_domain}{path}",
-            proxies=proxy,
-            headers=get_headers()
-        )
-        time.sleep(random.uniform(2, 5))
-    
-    return session  # Return warmed-up session
-```
-
-### Handle Proxy Failures Gracefully
-
-```python
-def fetch_with_proxy_retry(url, proxy_manager, max_retries=3):
-    for attempt in range(max_retries):
-        proxy = proxy_manager.get_proxy()
-        
-        try:
-            response = requests.get(
-                url,
-                proxies=proxy,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                proxy_manager.report_success(proxy)
-                return response
-            
-            elif response.status_code in [403, 429]:
-                proxy_manager.report_failure(proxy)
-                # Try different proxy
-                continue
-        
-        except (requests.exceptions.ProxyError,
-                requests.exceptions.ConnectTimeout) as e:
-            proxy_manager.report_failure(proxy)
-            continue
-    
-    raise Exception("All proxy attempts failed")
-```
-
----
-
-## 8. Proxy + Browser Automation
-
-### Playwright with Proxy
+### With Playwright
 
 ```python
 from playwright.sync_api import sync_playwright
@@ -522,111 +195,449 @@ with sync_playwright() as p:
         }
     )
     page = browser.new_page()
-    page.goto("https://target-site.com")
+    page.goto("https://httpbin.org/ip")
+    print(page.content())  # Shows proxy IP
 ```
 
-### Selenium with Proxy
+### With Scrapy
 
 ```python
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-
-options = Options()
-options.add_argument("--proxy-server=http://proxy.example.com:8080")
-
-driver = webdriver.Chrome(options=options)
-driver.get("https://target-site.com")
-```
-
-### Authenticated Proxy with Selenium
-
-```python
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from seleniumwire import webdriver as wire_webdriver
-
-# Using selenium-wire for authenticated proxies
-options = {
-    "proxy": {
-        "http": "http://user:pass@proxy.example.com:8080",
-        "https": "http://user:pass@proxy.example.com:8080",
-    }
+# settings.py
+DOWNLOADER_MIDDLEWARES = {
+    'scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware': 110,
 }
 
-driver = wire_webdriver.Chrome(seleniumwire_options=options)
+# In spider
+def start_requests(self):
+    yield scrapy.Request(
+        url,
+        meta={'proxy': 'http://user:pass@proxy.example.com:8080'}
+    )
 ```
 
 ---
 
-## 9. Testing Your Setup
+## Proxy Rotation
 
-### Check Your Exit IP
+### Simple Round-Robin
 
 ```python
-def get_exit_ip(proxy=None):
-    """Get the IP address seen by target server."""
-    response = requests.get(
-        "https://api.ipify.org?format=json",
-        proxies=proxy,
-        timeout=10
-    )
-    return response.json()["ip"]
+import itertools
 
-# Without proxy
-print(f"Real IP: {get_exit_ip()}")
+class ProxyRotator:
+    def __init__(self, proxies):
+        self.proxy_cycle = itertools.cycle(proxies)
+    
+    def get_proxy(self):
+        return next(self.proxy_cycle)
 
-# With proxy
-proxy = {"http": "http://proxy:8080", "https": "http://proxy:8080"}
-print(f"Proxy IP: {get_exit_ip(proxy)}")
+# Usage
+proxies = [
+    "http://proxy1.example.com:8080",
+    "http://proxy2.example.com:8080",
+    "http://proxy3.example.com:8080",
+]
+rotator = ProxyRotator(proxies)
+
+for url in urls:
+    proxy = rotator.get_proxy()
+    response = requests.get(url, proxies={"http": proxy, "https": proxy})
 ```
 
-### Check Proxy Anonymity
+### Random Selection
 
 ```python
-def check_anonymity(proxy):
-    """Check if proxy leaks real IP."""
-    response = requests.get(
-        "https://httpbin.org/headers",
-        proxies=proxy
-    )
-    headers = response.json()["headers"]
+import random
+
+class RandomProxyRotator:
+    def __init__(self, proxies):
+        self.proxies = proxies
     
-    # Check for forwarding headers
-    leak_headers = [
-        "X-Forwarded-For",
-        "X-Real-Ip",
-        "Via",
-        "Forwarded",
+    def get_proxy(self):
+        return random.choice(self.proxies)
+```
+
+### Weighted Selection (By Quality)
+
+```python
+import random
+
+class WeightedProxyRotator:
+    def __init__(self, proxies_with_weights):
+        # [(proxy, weight), ...]
+        self.proxies = [p[0] for p in proxies_with_weights]
+        self.weights = [p[1] for p in proxies_with_weights]
+    
+    def get_proxy(self):
+        return random.choices(self.proxies, weights=self.weights)[0]
+
+# Usage - prefer faster proxies
+rotator = WeightedProxyRotator([
+    ("http://fast-proxy:8080", 10),    # 10x more likely
+    ("http://medium-proxy:8080", 5),   # 5x more likely
+    ("http://slow-proxy:8080", 1),     # baseline
+])
+```
+
+### Smart Rotation with Health Tracking
+
+```python
+import time
+from collections import defaultdict
+
+class SmartProxyRotator:
+    def __init__(self, proxies):
+        self.proxies = proxies
+        self.failures = defaultdict(int)
+        self.last_used = defaultdict(float)
+        self.cooldown = 60  # seconds
+    
+    def get_proxy(self):
+        now = time.time()
+        available = []
+        
+        for proxy in self.proxies:
+            # Skip if too many failures
+            if self.failures[proxy] >= 3:
+                continue
+            
+            # Skip if used too recently
+            if now - self.last_used[proxy] < self.cooldown:
+                continue
+            
+            available.append(proxy)
+        
+        if not available:
+            # Reset failures if all proxies exhausted
+            self.failures.clear()
+            available = self.proxies
+        
+        proxy = random.choice(available)
+        self.last_used[proxy] = now
+        return proxy
+    
+    def report_success(self, proxy):
+        self.failures[proxy] = max(0, self.failures[proxy] - 1)
+    
+    def report_failure(self, proxy):
+        self.failures[proxy] += 1
+
+# Usage
+rotator = SmartProxyRotator(proxies)
+
+for url in urls:
+    proxy = rotator.get_proxy()
+    try:
+        response = requests.get(url, proxies={"http": proxy, "https": proxy}, timeout=10)
+        if response.status_code == 200:
+            rotator.report_success(proxy)
+        else:
+            rotator.report_failure(proxy)
+    except:
+        rotator.report_failure(proxy)
+```
+
+---
+
+## Proxy Providers
+
+### Types of Services
+
+| Service Type | How It Works | Examples |
+|--------------|--------------|----------|
+| **Proxy List** | You manage rotation | Free lists, purchased lists |
+| **Rotating Proxy** | Provider rotates for you | Bright Data, Oxylabs |
+| **API-based** | Get proxy per request | ScraperAPI, Crawlbase |
+
+### Popular Providers
+
+| Provider | Type | Specialty |
+|----------|------|-----------|
+| **Bright Data** | All types | Enterprise, largest pool |
+| **Oxylabs** | Residential, DC | High quality residential |
+| **Smartproxy** | Residential, DC | Good value |
+| **IPRoyal** | Residential | Budget option |
+| **ScraperAPI** | API service | Handles everything |
+| **Crawlbase** | API service | Simple integration |
+
+### API-Based Services
+
+These handle proxies, rotation, and often JavaScript rendering:
+
+```python
+# ScraperAPI example
+api_key = "YOUR_API_KEY"
+url = f"http://api.scraperapi.com?api_key={api_key}&url={target_url}"
+response = requests.get(url)
+
+# Crawlbase example
+token = "YOUR_TOKEN"
+url = f"https://api.crawlbase.com/?token={token}&url={target_url}"
+response = requests.get(url)
+```
+
+---
+
+## Testing Proxies
+
+### Verify Proxy Works
+
+```python
+def test_proxy(proxy):
+    """Test if proxy is working and return response time."""
+    test_url = "https://httpbin.org/ip"
+    proxies = {"http": proxy, "https": proxy}
+    
+    try:
+        start = time.time()
+        response = requests.get(test_url, proxies=proxies, timeout=10)
+        elapsed = time.time() - start
+        
+        if response.status_code == 200:
+            ip = response.json()["origin"]
+            return {"working": True, "ip": ip, "latency": elapsed}
+    except Exception as e:
+        return {"working": False, "error": str(e)}
+    
+    return {"working": False, "status": response.status_code}
+
+# Test all proxies
+for proxy in proxies:
+    result = test_proxy(proxy)
+    print(f"{proxy}: {result}")
+```
+
+### Verify IP Changed
+
+```python
+def get_current_ip(proxy=None):
+    proxies = {"http": proxy, "https": proxy} if proxy else None
+    response = requests.get("https://api.ipify.org?format=json", proxies=proxies)
+    return response.json()["ip"]
+
+# Test rotation
+for _ in range(5):
+    proxy = rotator.get_proxy()
+    ip = get_current_ip(proxy)
+    print(f"Proxy: {proxy} -> IP: {ip}")
+```
+
+### Check for Proxy Detection
+
+```python
+def check_proxy_detection(proxy):
+    """Check if a site detects proxy usage."""
+    proxies = {"http": proxy, "https": proxy}
+    
+    # Sites that detect proxies
+    test_sites = [
+        "https://whatismyipaddress.com/",
+        "https://www.ipqualityscore.com/",
     ]
     
-    for header in leak_headers:
-        if header in headers:
-            print(f"Warning: {header} = {headers[header]}")
-            return False
+    for site in test_sites:
+        response = requests.get(site, proxies=proxies)
+        if "proxy" in response.text.lower() or "vpn" in response.text.lower():
+            return True
     
-    return True
+    return False
+```
+
+---
+
+## Geo-Targeting
+
+### Why Location Matters
+
+- Different prices by region
+- Region-locked content
+- Local search results
+- Compliance with local laws
+
+### Setting Location
+
+```python
+# Most proxy providers support geo-targeting
+# Format varies by provider
+
+# Bright Data format
+proxy = "http://user-country-us:pass@proxy.brightdata.com:22225"
+
+# Oxylabs format
+proxy = "http://user:pass@us-pr.oxylabs.io:10000"
+
+# With session/sticky IP
+proxy = "http://user-country-us-session-abc123:pass@proxy.example.com:8080"
+```
+
+### Common Geo-Target Parameters
+
+| Parameter | Example | Use |
+|-----------|---------|-----|
+| Country | `country-us` | Target US IPs |
+| State | `state-california` | Target California |
+| City | `city-newyork` | Target NYC |
+| Session | `session-abc123` | Keep same IP |
+
+---
+
+## Common Issues & Solutions
+
+### Issue: Proxy Not Working
+
+```python
+# Check if proxy is reachable
+import socket
+
+def check_proxy_reachable(host, port):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(5)
+    try:
+        sock.connect((host, port))
+        return True
+    except:
+        return False
+    finally:
+        sock.close()
+```
+
+### Issue: SSL Errors
+
+```python
+# Some proxies have SSL issues
+# Option 1: Disable verification (not recommended for production)
+response = requests.get(url, proxies=proxies, verify=False)
+
+# Option 2: Use proxy's SSL certificate
+response = requests.get(url, proxies=proxies, verify="/path/to/proxy-ca.crt")
+```
+
+### Issue: Timeout
+
+```python
+# Increase timeout for slow proxies
+response = requests.get(
+    url, 
+    proxies=proxies, 
+    timeout=(10, 30)  # 10s connect, 30s read
+)
+```
+
+### Issue: Proxy Authentication Failed
+
+```python
+# URL-encode special characters in password
+from urllib.parse import quote
+
+username = "user"
+password = "p@ss:word"  # Has special chars
+encoded_password = quote(password, safe="")
+
+proxy = f"http://{username}:{encoded_password}@proxy.example.com:8080"
+```
+
+### Issue: IP Ban Across All Proxies
+
+This usually means detection is based on something other than IP:
+- Browser fingerprint
+- Cookies
+- Request patterns
+- Headers
+
+---
+
+## Best Practices
+
+### Do's
+
+```python
+# ✅ Test proxies before using
+working_proxies = [p for p in proxies if test_proxy(p)["working"]]
+
+# ✅ Implement health tracking
+rotator.report_failure(proxy)
+
+# ✅ Match proxy type to target site protection level
+# Simple site → Datacenter proxy
+# Protected site → Residential proxy
+
+# ✅ Use sessions for related requests
+session = requests.Session()
+session.proxies = {"http": proxy, "https": proxy}
+
+# ✅ Rotate proxies based on target's rate limits
+```
+
+### Don'ts
+
+```python
+# ❌ Use free proxy lists for serious work
+# They're unreliable, slow, and potentially malicious
+
+# ❌ Use datacenter proxies for heavily protected sites
+# They're easily detected
+
+# ❌ Use the same proxy for thousands of requests
+# It will get rate limited/blocked
+
+# ❌ Ignore proxy failures
+if not response:
+    continue  # Wrong - should track and rotate
 ```
 
 ---
 
 ## Summary
 
-| Proxy Type | Use Case | Cost | Detection Risk |
-|------------|----------|------|----------------|
-| **Datacenter** | Basic scraping, testing | $ | High |
-| **Residential** | Protected sites | $$$ | Low |
-| **ISP** | Balance of speed/stealth | $$ | Low |
-| **Mobile** | Most difficult targets | $$$$ | Very Low |
+| Concept | Key Points |
+|---------|------------|
+| **Datacenter Proxies** | Fast, cheap, easily detected |
+| **Residential Proxies** | High trust, expensive, slower |
+| **Mobile Proxies** | Highest trust, most expensive |
+| **Rotation** | Essential for scale, many strategies |
+| **Testing** | Always verify proxies work |
+| **Geo-targeting** | Match proxy location to needs |
 
-### Key Takeaways
+### Quick Start Template
 
-1. **Start with datacenter proxies** - Upgrade if blocked
-2. **Rotate proxies** - Don't hammer one IP
-3. **Match proxy location to headers** - Be consistent
-4. **Track proxy health** - Remove bad proxies
-5. **Use sticky sessions when needed** - For auth flows
-6. **Test your setup** - Verify IPs are changing
+```python
+import requests
+import random
+
+class SimpleProxyRotator:
+    def __init__(self, proxies):
+        self.proxies = proxies
+        self.bad_proxies = set()
+    
+    def get_proxy(self):
+        available = [p for p in self.proxies if p not in self.bad_proxies]
+        if not available:
+            self.bad_proxies.clear()
+            available = self.proxies
+        return random.choice(available)
+    
+    def mark_bad(self, proxy):
+        self.bad_proxies.add(proxy)
+
+def scrape_with_proxies(urls, proxies):
+    rotator = SimpleProxyRotator(proxies)
+    results = []
+    
+    for url in urls:
+        proxy = rotator.get_proxy()
+        try:
+            response = requests.get(
+                url,
+                proxies={"http": proxy, "https": proxy},
+                timeout=15
+            )
+            results.append(response.text)
+        except:
+            rotator.mark_bad(proxy)
+    
+    return results
+```
 
 ---
 
-*This completes the Technical Operations section. Next: [../02_anti_scraping_tech/](../02_anti_scraping_tech/) - Understanding anti-bot systems*
+*This completes the Technical Operations section. Next: [../02_anti_scraping_tech/](../02_anti_scraping_tech/) - Understanding what you're up against*
