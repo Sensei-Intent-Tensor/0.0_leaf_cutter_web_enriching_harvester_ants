@@ -1,1 +1,0 @@
-# Shopify Stores Ant Farm
