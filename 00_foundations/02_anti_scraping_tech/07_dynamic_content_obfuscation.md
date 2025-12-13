@@ -1,58 +1,121 @@
 # Dynamic Content & Obfuscation
 
-> **When Sites Deliberately Hide Data**
+> **When Sites Fight Back With Code**
 
-Beyond standard bot detection, some sites actively obfuscate their data to make scraping difficult. This document covers the techniques used and how to handle them.
+Beyond authentication and bot detection, some sites actively make their content difficult to extract through technical obfuscation. This document covers these anti-scraping code techniques.
 
 ---
 
 ## Why Sites Obfuscate
 
-- **Protect proprietary data** - Prices, inventory, contact info
-- **Prevent aggregation** - Stop comparison shopping sites
-- **Reduce server load** - Make scraping uneconomical
-- **Legal protection** - Create technical barriers to cite in lawsuits
+```
+Goal: Make scraping expensive/difficult while keeping human experience smooth
+
+Methods:
+├── Hide data in complex structures
+├── Load content dynamically
+├── Change element identifiers
+├── Encrypt or encode content
+└── Require computation to decode
+```
 
 ---
 
-## 1. CSS-Based Obfuscation
+## 1. Dynamic Class Names
 
-### Randomized Class Names
+### The Problem
+
+Class names that change on every build or request:
 
 ```html
-<!-- Instead of: -->
-<div class="price">$99.99</div>
+<!-- Monday -->
+<div class="product-card_a7x9z">
+    <span class="price_b2y8w">$99.99</span>
+</div>
 
-<!-- They use: -->
-<div class="a7x9f2k">$99.99</div>
+<!-- Tuesday (after deploy) -->
+<div class="product-card_k3m2n">
+    <span class="price_j5p9q">$99.99</span>
+</div>
 ```
 
-**Solution:** Use structural selectors or text matching:
+Your selector `div.product-card_a7x9z` breaks instantly.
+
+### Solutions
+
+#### Use Structural Selectors
 
 ```python
-# By position/structure
-price = soup.select_one('div.product > div:nth-child(3)')
+# BAD: Relies on class name
+soup.select('div.product-card_a7x9z')
 
-# By text pattern
-import re
-price_pattern = re.compile(r'\$[\d,.]+')
-for div in soup.find_all('div'):
-    if price_pattern.match(div.text.strip()):
-        price = div.text.strip()
+# GOOD: Use structure and attributes
+soup.select('div[class*="product-card"]')  # Contains
+soup.select('div[class^="product-card"]')  # Starts with
+
+# BETTER: Use data attributes (usually stable)
+soup.select('div[data-testid="product-card"]')
+soup.select('[data-product-id]')
+
+# BEST: Use hierarchical structure
+soup.select('article > div:first-child > span')
 ```
 
-### CSS Content Injection
+#### Find Patterns in Random Names
+
+```python
+import re
+
+def find_element_by_class_pattern(soup, pattern):
+    """Find elements where class matches pattern."""
+    regex = re.compile(pattern)
+    return soup.find_all(class_=regex)
+
+# Usage
+products = find_element_by_class_pattern(soup, r'product-card_[a-z0-9]+')
+prices = find_element_by_class_pattern(soup, r'price_[a-z0-9]+')
+```
+
+#### Use Text Content
+
+```python
+# Find by text content instead of class
+price_element = soup.find(string=re.compile(r'\$\d+\.\d{2}'))
+if price_element:
+    price = price_element.parent
+```
+
+---
+
+## 2. CSS Content Injection
+
+### The Problem
+
+Content rendered via CSS `::before` or `::after`:
 
 ```html
+<span class="price" data-value="99.99"></span>
+
 <style>
-.price::before { content: "$99"; }
-.price::after { content: ".99"; }
+.price::before {
+    content: "$" attr(data-value);
+}
 </style>
-<div class="price"></div>
-<!-- Displays "$99.99" but HTML is empty -->
 ```
 
-**Solution:** Use browser automation to get rendered text:
+Scraping the HTML gives you an empty `<span>`.
+
+### Solutions
+
+#### Extract from Data Attributes
+
+```python
+# Get the data attribute
+price_elem = soup.select_one('.price')
+price = price_elem.get('data-value')  # "99.99"
+```
+
+#### Use Browser Automation
 
 ```python
 from playwright.sync_api import sync_playwright
@@ -62,575 +125,496 @@ with sync_playwright() as p:
     page = browser.new_page()
     page.goto(url)
     
-    # Get computed/rendered text
+    # Get computed text (includes CSS content)
     price = page.evaluate('''
-        const el = document.querySelector('.price');
-        window.getComputedStyle(el, '::before').content +
-        window.getComputedStyle(el, '::after').content
+        window.getComputedStyle(
+            document.querySelector('.price'), 
+            '::before'
+        ).content
     ''')
+    
+    # Or just get visible text
+    visible_price = page.inner_text('.price')
 ```
 
-### Character Shuffling with CSS
+---
 
-```html
-<style>
-.c1 { order: 3; }
-.c2 { order: 1; }
-.c3 { order: 2; }
-</style>
-<div style="display:flex">
-    <span class="c1">9</span>
-    <span class="c2">$</span>
-    <span class="c3">9</span>
-</div>
-<!-- HTML order: 9, $, 9 -->
-<!-- Display order: $, 9, 9 = "$99" -->
+## 3. Font-Based Obfuscation
+
+### The Problem
+
+Custom fonts that map different characters:
+
+```
+In the font file:
+'A' displays as '7'
+'B' displays as '3'
+'C' displays as '9'
+
+HTML: <span class="price">ABC</span>
+User sees: 739
+Scraper sees: ABC
 ```
 
-**Solution:** Respect CSS order or get innerText:
+### Detection
 
 ```python
-# Browser automation gets visual order
-text = page.inner_text('.price-container')  # "$99"
+def detect_custom_font_obfuscation(soup):
+    """Check for custom font usage on price elements."""
+    
+    # Look for custom font-face declarations
+    styles = soup.find_all('style')
+    for style in styles:
+        if '@font-face' in style.text:
+            if any(x in style.text.lower() for x in ['price', 'number', 'digit']):
+                return True
+    
+    # Look for inline font styles
+    elements = soup.find_all(style=re.compile(r'font-family.*[\'"][^\'"]+[\'"]'))
+    return len(elements) > 0
 ```
 
-### Font-Based Substitution
+### Solutions
 
-```css
-@font-face {
-    font-family: 'PriceFont';
-    src: url('custom-font.woff2');
-}
-.price { font-family: 'PriceFont'; }
-```
-
-The custom font maps characters differently:
-- HTML shows: `BCDE`
-- Display shows: `$99.99`
-
-**Solution:** Map the font or use OCR:
+#### Map the Font
 
 ```python
-# Option 1: Decode the font mapping
+# Download and analyze the font file
 from fontTools.ttLib import TTFont
 
-font = TTFont('custom-font.woff2')
-cmap = font.getBestCmap()
-# Reverse engineer the character mapping
-
-# Option 2: Screenshot and OCR
-page.screenshot(path='price.png', clip={'x': 100, 'y': 200, 'width': 50, 'height': 20})
-import pytesseract
-price = pytesseract.image_to_string('price.png')
-```
-
----
-
-## 2. JavaScript Obfuscation
-
-### Dynamic Content Loading
-
-```javascript
-// Data loaded after page load
-fetch('/api/prices')
-    .then(r => r.json())
-    .then(data => {
-        document.querySelector('.price').textContent = data.price;
-    });
-```
-
-**Solution:** Wait for content or intercept API:
-
-```python
-# Wait for content
-page.wait_for_selector('.price:not(:empty)')
-
-# Or intercept the API call
-def handle_response(response):
-    if '/api/prices' in response.url:
-        print(response.json())
-
-page.on('response', handle_response)
-page.goto(url)
-```
-
-### Encoded Data in JavaScript
-
-```javascript
-// Data embedded in script tag
-var _0x1234 = ['JDk5Ljk5'];  // Base64: "$99.99"
-document.querySelector('.price').textContent = atob(_0x1234[0]);
-```
-
-**Solution:** Extract and decode:
-
-```python
-import re
-import base64
-
-# Find encoded strings
-script = soup.find('script', string=re.compile(r'_0x\w+'))
-encoded = re.findall(r"'([A-Za-z0-9+/=]+)'", script.string)
-
-for enc in encoded:
-    try:
-        decoded = base64.b64decode(enc).decode('utf-8')
-        print(f"Decoded: {decoded}")
-    except:
+def get_font_mapping(font_url):
+    """Extract character mapping from custom font."""
+    
+    # Download font
+    response = requests.get(font_url)
+    font = TTFont(io.BytesIO(response.content))
+    
+    # Get cmap (character map)
+    cmap = font.getBestCmap()
+    
+    # Build mapping
+    mapping = {}
+    for code, glyph_name in cmap.items():
+        # Analyze glyph shapes to determine actual character
+        # This is complex and font-specific
         pass
+    
+    return mapping
 ```
 
-### Obfuscated JavaScript
-
-```javascript
-// Original:
-function getPrice() { return "$99.99"; }
-
-// Obfuscated:
-var _0xabc=["\x67\x65\x74\x50\x72\x69\x63\x65"];
-function _0x123(){return "\x24\x39\x39\x2e\x39\x39";}
-```
-
-**Solution:** Use browser to execute and extract:
+#### Use OCR
 
 ```python
-# Let the browser handle it
-page.goto(url)
-price = page.evaluate('getPrice()')  # Browser executes JS
-```
-
----
-
-## 3. Data Fragmentation
-
-### Split Across Elements
-
-```html
-<span class="d">$</span>
-<span class="d">9</span>
-<span class="d">9</span>
-<span class="d">.</span>
-<span class="d">9</span>
-<span class="d">9</span>
-```
-
-**Solution:** Combine elements:
-
-```python
-# Gather all fragments
-fragments = soup.select('.d')
-price = ''.join(f.text for f in fragments)  # "$99.99"
-```
-
-### Interleaved Dummy Characters
-
-```html
-<span class="real">$</span>
-<span class="fake">X</span>
-<span class="real">9</span>
-<span class="fake">Y</span>
-<span class="real">9</span>
-```
-
-**Solution:** Filter by class or visibility:
-
-```python
-# By class
-real = soup.select('.real')
-price = ''.join(r.text for r in real)
-
-# By visibility (in browser)
-price = page.evaluate('''
-    Array.from(document.querySelectorAll('.price span'))
-        .filter(el => window.getComputedStyle(el).display !== 'none')
-        .map(el => el.textContent)
-        .join('')
-''')
-```
-
-### Data in Attributes
-
-```html
-<div class="price" 
-     data-int="99" 
-     data-dec="99" 
-     data-cur="USD">
-</div>
-```
-
-**Solution:** Extract from attributes:
-
-```python
-div = soup.select_one('.price')
-price = f"${div['data-int']}.{div['data-dec']}"
-```
-
----
-
-## 4. Image-Based Content
-
-### Text as Images
-
-```html
-<img src="/prices/product123.png" alt="">
-<!-- Image contains "$99.99" -->
-```
-
-**Solution:** OCR:
-
-```python
+from playwright.sync_api import sync_playwright
 import pytesseract
 from PIL import Image
-import requests
-from io import BytesIO
+import io
 
-# Download image
-img_url = soup.select_one('.price img')['src']
-response = requests.get(img_url)
-img = Image.open(BytesIO(response.content))
-
-# OCR
-text = pytesseract.image_to_string(img)
-print(text)  # "$99.99"
-```
-
-### Canvas Rendering
-
-```javascript
-const canvas = document.getElementById('priceCanvas');
-const ctx = canvas.getContext('2d');
-ctx.fillText('$99.99', 10, 50);
-```
-
-**Solution:** Screenshot and OCR:
-
-```python
-# Screenshot specific element
-element = page.query_selector('#priceCanvas')
-element.screenshot(path='canvas.png')
-
-# OCR
-import pytesseract
-text = pytesseract.image_to_string('canvas.png')
-```
-
-### SVG Text
-
-```html
-<svg viewBox="0 0 100 20">
-    <text x="0" y="15">$99.99</text>
-</svg>
-```
-
-**Solution:** Parse SVG:
-
-```python
-svg = soup.select_one('svg')
-text = svg.select_one('text').text  # "$99.99"
-```
-
----
-
-## 5. API Obfuscation
-
-### Encrypted API Responses
-
-```json
-{
-    "data": "U2FsdGVkX1+abc123encrypted..."
-}
-```
-
-**Solution:** Find decryption logic in JavaScript:
-
-```python
-# Search for crypto libraries/patterns
-scripts = soup.find_all('script')
-for script in scripts:
-    if script.string and 'decrypt' in script.string.lower():
-        # Analyze the decryption method
-        pass
-
-# Or use browser to decrypt
-decrypted = page.evaluate('''
-    // Call their decryption function
-    window.decrypt(encryptedData)
-''')
-```
-
-### Signed Requests
-
-```javascript
-// Request requires signature
-fetch('/api/data', {
-    headers: {
-        'X-Signature': generateSignature(timestamp, nonce),
-        'X-Timestamp': timestamp,
-        'X-Nonce': nonce
-    }
-});
-```
-
-**Solution:** Reverse engineer signature or use browser:
-
-```python
-# Option 1: Capture in browser
-page.on('request', lambda req: print(req.headers))
-page.goto(url)
-
-# Option 2: Reverse engineer
-# Analyze generateSignature function and replicate
-```
-
-### GraphQL with Persisted Queries
-
-```javascript
-// Instead of sending query, send hash
-fetch('/graphql', {
-    body: JSON.stringify({
-        extensions: {
-            persistedQuery: {
-                sha256Hash: "abc123...",
-                version: 1
-            }
-        },
-        variables: { id: "123" }
-    })
-});
-```
-
-**Solution:** Find the query mapping or replay requests:
-
-```python
-# Capture the original query via browser
-# Then use the hash in subsequent requests
-```
-
----
-
-## 6. Anti-Pattern Detection
-
-### Request Pattern Analysis
-
-Sites may block if:
-- Sequential page access (page 1, 2, 3, 4...)
-- Alphabetical access (a.html, b.html, c.html...)
-- Predictable timing
-
-**Solution:** Randomize:
-
-```python
-import random
-
-urls = list(urls)
-random.shuffle(urls)  # Random order
-
-for url in urls:
-    delay = random.uniform(2, 10)  # Random delay
-    time.sleep(delay)
-    scrape(url)
-```
-
-### Behavioral Triggers
-
-```javascript
-// Track if user interacts before accessing "protected" content
-let hasInteracted = false;
-document.addEventListener('mousemove', () => hasInteracted = true);
-
-// Show content only if interacted
-if (hasInteracted) {
-    showPrices();
-}
-```
-
-**Solution:** Simulate interaction:
-
-```python
-# Move mouse before scraping
-page.mouse.move(100, 100)
-page.mouse.move(200, 300)
-page.wait_for_timeout(1000)
-# Now scrape
-```
-
----
-
-## 7. Defeating Obfuscation Patterns
-
-### General Strategy
-
-```python
-def scrape_obfuscated_site(url):
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page()
-        
-        # 1. Load page fully
-        page.goto(url)
-        page.wait_for_load_state('networkidle')
-        
-        # 2. Trigger interactions if needed
-        page.mouse.move(100, 100)
-        page.evaluate('window.scrollTo(0, 500)')
-        
-        # 3. Wait for dynamic content
-        page.wait_for_timeout(2000)
-        
-        # 4. Get rendered text (not HTML)
-        data = page.evaluate('''
-            () => {
-                const priceEl = document.querySelector('.price');
-                return {
-                    // Get computed/visible text
-                    price: priceEl?.innerText || 
-                           window.getComputedStyle(priceEl).content,
-                    
-                    // Get data from attributes
-                    attrs: {
-                        int: priceEl?.dataset?.int,
-                        dec: priceEl?.dataset?.dec,
-                    }
-                };
-            }
-        ''')
-        
-        browser.close()
-        return data
-```
-
-### OCR as Fallback
-
-```python
-def ocr_fallback(page, selector):
-    """Screenshot element and OCR if text extraction fails."""
+def extract_with_ocr(page, selector):
+    """Screenshot element and OCR it."""
     
     element = page.query_selector(selector)
-    
-    # Try normal text extraction first
-    text = element.inner_text().strip()
-    if text and is_valid_price(text):
-        return text
-    
-    # Fallback to OCR
     screenshot = element.screenshot()
     
-    import pytesseract
-    from PIL import Image
-    from io import BytesIO
-    
-    img = Image.open(BytesIO(screenshot))
-    text = pytesseract.image_to_string(img)
+    image = Image.open(io.BytesIO(screenshot))
+    text = pytesseract.image_to_string(image)
     
     return text.strip()
 ```
 
----
-
-## 8. Site-Specific Patterns
-
-### E-commerce Price Obfuscation
+#### Browser Computed Text
 
 ```python
-def extract_ecommerce_price(page):
-    """Handle common e-commerce obfuscation."""
-    
-    strategies = [
-        # Strategy 1: Direct text
-        lambda: page.inner_text('.price'),
-        
-        # Strategy 2: Data attributes
-        lambda: f"${page.get_attribute('.price', 'data-price')}",
-        
-        # Strategy 3: JSON in script
-        lambda: extract_json_price(page),
-        
-        # Strategy 4: Computed style
-        lambda: page.evaluate('''
-            getComputedStyle(document.querySelector('.price'), '::before').content
-        '''),
-        
-        # Strategy 5: OCR fallback
-        lambda: ocr_fallback(page, '.price'),
-    ]
-    
-    for strategy in strategies:
-        try:
-            result = strategy()
-            if result and '$' in str(result):
-                return result
-        except:
-            continue
-    
-    return None
+# Sometimes browser returns the visual text
+page.goto(url)
+price = page.inner_text('.price')  # May show actual number
 ```
 
-### Contact Info Obfuscation
+---
+
+## 4. Canvas-Rendered Content
+
+### The Problem
+
+Content drawn on HTML canvas, not in DOM:
+
+```html
+<canvas id="price-display" width="100" height="30"></canvas>
+
+<script>
+const ctx = document.getElementById('price-display').getContext('2d');
+ctx.fillText('$99.99', 10, 20);
+</script>
+```
+
+No text in HTML to scrape.
+
+### Solutions
+
+#### OCR the Canvas
 
 ```python
-def extract_email(page):
-    """Handle email obfuscation."""
+def extract_canvas_text(page, canvas_selector):
+    """Extract text from canvas using OCR."""
     
-    # Check for cloudflare email protection
-    protected = page.query_selector('[data-cfemail]')
-    if protected:
-        encoded = protected.get_attribute('data-cfemail')
-        return decode_cf_email(encoded)
+    # Screenshot just the canvas
+    canvas = page.query_selector(canvas_selector)
+    screenshot = canvas.screenshot()
     
-    # Check for JavaScript-assembled email
-    email = page.evaluate('''
-        () => {
-            // Find mailto links
-            const mailto = document.querySelector('a[href^="mailto:"]');
-            if (mailto) return mailto.href.replace('mailto:', '');
-            
-            // Find email in onclick handlers
-            const onclick = document.querySelector('[onclick*="@"]');
-            if (onclick) {
-                const match = onclick.getAttribute('onclick').match(/[\\w.]+@[\\w.]+/);
-                return match ? match[0] : null;
-            }
-            
-            return null;
-        }
-    ''')
+    # OCR
+    image = Image.open(io.BytesIO(screenshot))
+    text = pytesseract.image_to_string(image)
     
-    return email
+    return text
+```
 
-def decode_cf_email(encoded):
-    """Decode Cloudflare email protection."""
-    r = int(encoded[:2], 16)
-    email = ''.join(
-        chr(int(encoded[i:i+2], 16) ^ r)
-        for i in range(2, len(encoded), 2)
+#### Intercept Canvas Drawing
+
+```python
+# Inject script to intercept fillText calls
+page.add_init_script('''
+    window.__canvasText = [];
+    const originalFillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function(text, x, y) {
+        window.__canvasText.push({text, x, y});
+        return originalFillText.apply(this, arguments);
+    };
+''')
+
+page.goto(url)
+page.wait_for_timeout(2000)
+
+# Get intercepted text
+canvas_text = page.evaluate('window.__canvasText')
+```
+
+---
+
+## 5. Infinite Scroll Pagination
+
+### The Problem
+
+No page numbers, content loads as you scroll:
+
+```
+Page Load: Items 1-20
+Scroll Down: Items 21-40 load
+Scroll More: Items 41-60 load
+...continues...
+```
+
+### Solutions
+
+#### Scroll and Collect
+
+```python
+def scrape_infinite_scroll(page, item_selector, max_items=1000):
+    """Scroll through infinite content."""
+    
+    items = []
+    last_height = 0
+    
+    while len(items) < max_items:
+        # Get current items
+        new_items = page.query_selector_all(item_selector)
+        items = list(set(items + new_items))  # Dedupe
+        
+        # Scroll to bottom
+        page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+        page.wait_for_timeout(2000)
+        
+        # Check if we've reached the end
+        new_height = page.evaluate('document.body.scrollHeight')
+        if new_height == last_height:
+            break
+        last_height = new_height
+    
+    return items[:max_items]
+```
+
+#### Find the API
+
+```python
+# Intercept XHR requests to find pagination API
+api_calls = []
+
+def handle_request(request):
+    if 'api' in request.url and 'page' in request.url:
+        api_calls.append(request.url)
+
+page.on('request', handle_request)
+page.goto(url)
+page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+page.wait_for_timeout(2000)
+
+# Now call API directly
+for api_url in api_calls:
+    response = requests.get(api_url)
+    data = response.json()
+```
+
+---
+
+## 6. WebSocket Data Loading
+
+### The Problem
+
+Data loaded via WebSocket, not HTTP:
+
+```javascript
+const ws = new WebSocket('wss://site.com/data');
+ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    updatePrices(data);
+};
+```
+
+### Solutions
+
+#### Intercept WebSocket Messages
+
+```python
+from playwright.sync_api import sync_playwright
+
+websocket_messages = []
+
+def handle_ws_message(ws, message):
+    websocket_messages.append(message)
+
+with sync_playwright() as p:
+    browser = p.chromium.launch()
+    page = browser.new_page()
+    
+    # Listen for WebSocket
+    page.on('websocket', lambda ws: ws.on('framereceived', 
+            lambda payload: websocket_messages.append(payload)))
+    
+    page.goto(url)
+    page.wait_for_timeout(5000)
+    
+    # Process messages
+    for msg in websocket_messages:
+        data = json.loads(msg)
+```
+
+---
+
+## 7. GraphQL with Dynamic Queries
+
+### The Problem
+
+Complex GraphQL that requires specific query structures:
+
+```javascript
+const query = gql`
+    query GetProducts($cursor: String, $filters: FilterInput!) {
+        products(after: $cursor, filters: $filters) {
+            edges {
+                node {
+                    id
+                    name
+                    price
+                }
+            }
+            pageInfo {
+                hasNextPage
+                endCursor
+            }
+        }
+    }
+`;
+```
+
+### Solutions
+
+#### Capture and Replay
+
+```python
+# Intercept GraphQL requests
+graphql_queries = []
+
+def handle_request(request):
+    if 'graphql' in request.url:
+        graphql_queries.append({
+            'url': request.url,
+            'body': request.post_data
+        })
+
+page.on('request', handle_request)
+page.goto(url)
+# ... interact with page
+
+# Replay queries
+for query in graphql_queries:
+    response = requests.post(
+        query['url'],
+        json=json.loads(query['body']),
+        headers={'Content-Type': 'application/json'}
     )
-    return email
+```
+
+---
+
+## 8. JavaScript-Only Data
+
+### The Problem
+
+Data embedded in JavaScript, not HTML:
+
+```html
+<script>
+window.__INITIAL_STATE__ = {
+    products: [
+        {id: 1, name: "Widget", price: 99.99},
+        {id: 2, name: "Gadget", price: 149.99}
+    ]
+};
+</script>
+
+<div id="app"></div>
+```
+
+### Solutions
+
+#### Extract from Script Tags
+
+```python
+import json
+import re
+
+def extract_json_from_script(html, variable_name):
+    """Extract JSON data from JavaScript variable."""
+    
+    # Pattern for window.VAR = {...}
+    pattern = rf'{variable_name}\s*=\s*(\{{.*?\}});'
+    match = re.search(pattern, html, re.DOTALL)
+    
+    if match:
+        json_str = match.group(1)
+        return json.loads(json_str)
+    
+    return None
+
+# Usage
+soup = BeautifulSoup(html, 'html.parser')
+scripts = soup.find_all('script')
+
+for script in scripts:
+    if script.string and '__INITIAL_STATE__' in script.string:
+        data = extract_json_from_script(script.string, '__INITIAL_STATE__')
+        products = data['products']
+```
+
+#### Evaluate in Browser
+
+```python
+page.goto(url)
+data = page.evaluate('window.__INITIAL_STATE__')
+products = data['products']
+```
+
+---
+
+## 9. Anti-Debugging Techniques
+
+### The Problem
+
+Sites detect DevTools and change behavior:
+
+```javascript
+// Detect DevTools
+setInterval(() => {
+    const start = performance.now();
+    debugger;  // Pauses if DevTools open
+    if (performance.now() - start > 100) {
+        // DevTools detected!
+        hideContent();
+    }
+}, 1000);
+```
+
+### Solutions
+
+#### Disable Breakpoints
+
+```python
+# In Playwright
+page.add_init_script('''
+    // Remove debugger statements
+    const originalEval = window.eval;
+    window.eval = function(code) {
+        return originalEval(code.replace(/debugger/g, ''));
+    };
+''')
+```
+
+---
+
+## Detection and Adaptation Pattern
+
+```python
+class AdaptiveScraper:
+    """Scraper that adapts to obfuscation techniques."""
+    
+    def __init__(self, url):
+        self.url = url
+        self.techniques_detected = []
+    
+    def analyze_page(self, html):
+        """Detect obfuscation techniques."""
+        
+        # Check for dynamic classes
+        if re.search(r'class="[a-z]+_[a-z0-9]{5,}"', html):
+            self.techniques_detected.append('dynamic_classes')
+        
+        # Check for custom fonts
+        if '@font-face' in html and 'woff' in html:
+            self.techniques_detected.append('custom_fonts')
+        
+        # Check for canvas
+        if '<canvas' in html:
+            self.techniques_detected.append('canvas_content')
+        
+        # Check for WebSocket
+        if 'WebSocket' in html or 'wss://' in html:
+            self.techniques_detected.append('websocket')
+        
+        return self.techniques_detected
+    
+    def get_extraction_strategy(self):
+        """Choose best extraction method based on detected techniques."""
+        
+        if 'canvas_content' in self.techniques_detected:
+            return 'ocr'
+        elif 'websocket' in self.techniques_detected:
+            return 'intercept_ws'
+        elif 'dynamic_classes' in self.techniques_detected:
+            return 'structural_selectors'
+        else:
+            return 'standard'
 ```
 
 ---
 
 ## Summary
 
-| Obfuscation Type | Detection | Solution |
-|------------------|-----------|----------|
-| **Random classes** | Changing class names | Structural selectors |
-| **CSS content** | Empty elements with ::before/after | Computed styles |
-| **Character shuffle** | Flexbox reordering | Get innerText |
-| **Custom fonts** | Font substitution | Font analysis or OCR |
-| **JS loading** | Empty initial HTML | Wait for content |
-| **Encoded data** | Base64/hex in scripts | Decode or execute |
-| **Fragmentation** | Split across elements | Combine fragments |
-| **Images** | No text in HTML | OCR |
-| **Canvas** | No accessible text | Screenshot + OCR |
+| Technique | Detection | Solution |
+|-----------|-----------|----------|
+| **Dynamic classes** | Regex pattern in class names | Partial match selectors |
+| **CSS content** | Empty elements with data-* | Extract from attributes |
+| **Custom fonts** | @font-face for prices | OCR or font mapping |
+| **Canvas rendering** | `<canvas>` for text | OCR |
+| **Infinite scroll** | No pagination links | Scroll automation |
+| **WebSocket data** | wss:// in source | Intercept messages |
+| **Embedded JSON** | `__INITIAL_STATE__` | Script tag extraction |
 
 ### Key Takeaways
 
-1. **Browser > Requests** - Rendered content bypasses most obfuscation
-2. **innerText > innerHTML** - Get visual text, not HTML
-3. **Intercept APIs** - Often cleaner than parsing obfuscated HTML
-4. **OCR as backup** - When all else fails
-5. **Analyze patterns** - Each site has consistent obfuscation
-6. **Update regularly** - Obfuscation changes over time
+1. **Analyze the page first** - Understand what you're dealing with
+2. **Browser automation helps** - Many techniques fail against real browsers
+3. **Find the data source** - Often easier than scraping rendered HTML
+4. **OCR as fallback** - Works when all else fails
+5. **Intercept, don't scrape** - Capture data at the source
 
 ---
 
