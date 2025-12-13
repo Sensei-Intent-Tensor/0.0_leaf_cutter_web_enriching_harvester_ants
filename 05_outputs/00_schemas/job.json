@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "job.json",
+  "title": "Job Listing",
+  "description": "Job posting schema",
+  "allOf": [
+    { "$ref": "base_item.json" }
+  ],
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "company": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string"
+    },
+    "remote": {
+      "type": "string",
+      "enum": ["remote", "onsite", "hybrid", "unknown"]
+    },
+    "salary_min": {
+      "type": "number"
+    },
+    "salary_max": {
+      "type": "number"
+    },
+    "salary_currency": {
+      "type": "string",
+      "default": "USD"
+    },
+    "salary_period": {
+      "type": "string",
+      "enum": ["hourly", "daily", "weekly", "monthly", "yearly"]
+    },
+    "description": {
+      "type": "string"
+    },
+    "requirements": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "benefits": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "employment_type": {
+      "type": "string",
+      "enum": ["full_time", "part_time", "contract", "temporary", "internship"]
+    },
+    "experience_level": {
+      "type": "string",
+      "enum": ["entry", "mid", "senior", "lead", "executive"]
+    },
+    "posted_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "apply_url": {
+      "type": "string",
+      "format": "uri"
+    }
+  },
+  "required": ["title", "company"]
+}
