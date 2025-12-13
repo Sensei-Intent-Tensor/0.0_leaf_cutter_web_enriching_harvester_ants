@@ -1,348 +1,360 @@
 # Terms of Service
 
-> **The Legal Fine Print That Matters**
+> **The Legal Fine Print That Can Bite**
 
-Terms of Service (ToS) are legal contracts between websites and users. Understanding them is essential for responsible scraping—even if most people never read them.
+Website Terms of Service (ToS) are legal agreements that may restrict scraping. Understanding their implications helps you make informed decisions.
 
 ---
 
 ## What Are Terms of Service?
 
-A legal agreement that:
-- Defines acceptable use
-- Limits liability
-- Grants/restricts rights
-- May prohibit scraping
+A legal contract between the website and its users. By using the site, you may be agreeing to these terms.
 
-### Also Known As
-
-- Terms of Use (ToU)
-- Terms & Conditions (T&C)
-- User Agreement
-- Acceptable Use Policy (AUP)
+```
+┌────────────────────────────────────────────┐
+│            TERMS OF SERVICE                │
+├────────────────────────────────────────────┤
+│                                            │
+│  By using this website, you agree to:      │
+│                                            │
+│  • Not scrape, crawl, or spider the site   │
+│  • Not use automated tools                 │
+│  • Not collect user data                   │
+│  • Respect intellectual property           │
+│  • Not compete with our services           │
+│                                            │
+│  Violation may result in:                  │
+│  • Account termination                     │
+│  • Legal action                            │
+│  • Monetary damages                        │
+│                                            │
+└────────────────────────────────────────────┘
+```
 
 ---
 
-## ToS and Scraping
+## Common Anti-Scraping Clauses
 
-### Common Prohibitions
-
-Most commercial websites include language like:
+### Direct Prohibition
 
 ```
-"You agree not to:
-- Use any robot, spider, scraper, or other automated means 
-  to access the Service
-- Collect or harvest any information from the Service
-- Reproduce, copy, or redistribute content from the Service
-- Access the Service for competitive purposes"
+"You may not use any automated means, including robots, 
+crawlers, or data mining tools, to download, monitor, 
+or use data or content from the Service."
 ```
 
-### Why This Matters
+### Broad Prohibition
 
-1. **Contract Law** - Clicking "I Agree" or using the site may create a contract
-2. **Breach of Contract** - Violating terms can have legal consequences
-3. **CFAA Concerns** - Some argue ToS violations = "unauthorized access"
-4. **Civil Liability** - Site can sue for damages
+```
+"You agree not to access the Service by any means other 
+than through the interface that is provided by the Company."
+```
+
+### Data Collection Prohibition
+
+```
+"You may not collect, harvest, or assemble information 
+about other users, including email addresses, without 
+their consent."
+```
+
+### Competition Clause
+
+```
+"You may not use information obtained from the Service 
+to develop or operate a service that competes with ours."
+```
+
+### Rate Limits
+
+```
+"You agree not to make more than 100 requests per minute 
+to our API or website."
+```
 
 ---
 
-## Legal Landscape
+## Legal Framework
 
-### Key Cases
+### Contract Law
 
-#### hiQ v. LinkedIn (2022)
-- hiQ scraped public LinkedIn profiles
-- LinkedIn claimed ToS violation + CFAA
-- **Result**: Scraping public data generally allowed
-- **But**: Case about *public* data, LinkedIn later won on other grounds
+ToS are contracts. Violating them could be:
+- **Breach of contract** - Civil liability
+- **Tortious interference** - If affecting business
+- **Trespass to chattels** - Unauthorized use of servers
 
-#### Van Buren v. United States (2021)
-- Supreme Court CFAA case
-- **Result**: CFAA is about access, not misuse
-- **Implication**: ToS violations alone may not be "unauthorized access"
+### Computer Fraud and Abuse Act (CFAA)
 
-#### Sandvig v. Sessions (2020)
-- Researchers challenged CFAA scope
-- **Result**: ToS violations aren't automatically federal crimes
+US federal law that can apply to scraping:
 
-#### Craigslist v. 3Taps (2013)
-- 3Taps ignored cease-and-desist and technical blocks
-- **Result**: $3.5M judgment - but involved active evasion
+```
+CFAA Violations:
+├── Accessing computer "without authorization"
+├── Exceeding authorized access
+└── Obtaining information from protected computers
+```
 
-### Current Legal State
+**Key Cases:**
+- **hiQ vs LinkedIn (2022)**: Scraping publicly accessible data is not CFAA violation
+- **Van Buren vs US (2021)**: CFAA requires bypassing access gates, not just ToS violation
 
-| Situation | Risk Level |
-|-----------|------------|
-| Public data, no ToS violation | Low |
-| Public data, ToS prohibits | Medium |
-| Behind login, ToS prohibits | Higher |
-| Ignoring cease-and-desist | High |
-| Bypassing technical blocks | High |
-| Commercial use of scraped data | Varies |
+### State Laws
+
+Various states have computer crime laws:
+- California: Computer Fraud and Abuse Act
+- Texas: Breach of Computer Security
+- Many others
 
 ---
 
-## What ToS Actually Say
+## ToS Enforceability
 
-### Amazon
+### Factors Courts Consider
 
+| Factor | More Enforceable | Less Enforceable |
+|--------|------------------|------------------|
+| **Notice** | Click-through acceptance | Buried in footer |
+| **Clarity** | Specific prohibitions | Vague language |
+| **Access** | Requires account | Public data |
+| **Damage** | Demonstrated harm | No actual damage |
+| **Consent** | Explicit agreement | Implied |
+
+### Browse-Wrap vs Click-Wrap
+
+**Click-Wrap** (More Enforceable):
 ```
-"You may not use any robot, spider, scraper, data mining tools,
-data gathering and extraction tools, or other automated means
-to access the Site for any purpose..."
-```
-
-### LinkedIn
-
-```
-"You agree that you will not use software, devices, scripts,
-robots, other means or processes to access, 'scrape', 'crawl'
-or 'spider' any web pages or other services contained in the site."
-```
-
-### Twitter/X
-
-```
-"Scraping the Services without the prior consent of Twitter
-is expressly prohibited."
-```
-
-### Facebook
-
-```
-"You will not collect users' content or information,
-or otherwise access Facebook, using automated means
-(such as harvesting bots, robots, spiders, or scrapers)
-without our prior permission."
+┌─────────────────────────────────────┐
+│ ☐ I have read and agree to the     │
+│   Terms of Service                  │
+│                                     │
+│         [Create Account]            │
+└─────────────────────────────────────┘
 ```
 
-### Google
-
+**Browse-Wrap** (Less Enforceable):
 ```
-"Don't misuse our Services. For example, don't:
-- use automated means to access the Services..."
+┌─────────────────────────────────────┐
+│  [Page content]                     │
+│                                     │
+│  ───────────────────────────────    │
+│  By using this site, you agree to   │
+│  our Terms of Service               │
+└─────────────────────────────────────┘
 ```
 
 ---
 
 ## Risk Assessment Framework
 
-### Factors That Increase Risk
+### Low Risk Scenarios
 
-| Factor | Risk Increase |
-|--------|---------------|
-| Commercial purpose | ⬆️⬆️⬆️ |
-| Competing with site | ⬆️⬆️⬆️ |
-| Ignoring cease-and-desist | ⬆️⬆️⬆️ |
-| Bypassing technical blocks | ⬆️⬆️ |
-| Republishing content | ⬆️⬆️ |
-| Creating account to scrape | ⬆️⬆️ |
-| High request volume | ⬆️ |
-| Impacting site performance | ⬆️⬆️ |
+- Public data, no account required
+- No robots.txt restrictions
+- No ToS or ToS allows scraping
+- Non-commercial/research use
+- No personal data
+- Respectful rate limiting
 
-### Factors That Decrease Risk
+### Medium Risk Scenarios
 
-| Factor | Risk Decrease |
-|--------|---------------|
-| Public data only | ⬇️⬇️ |
-| Academic research | ⬇️⬇️ |
-| Personal use | ⬇️⬇️ |
-| No republishing | ⬇️ |
-| Respectful rate limiting | ⬇️ |
-| No login required | ⬇️ |
-| Following robots.txt | ⬇️ |
+- ToS prohibits scraping but not enforced
+- Account required but public data
+- Commercial use of non-sensitive data
+- Aggregation without direct competition
 
----
+### High Risk Scenarios
 
-## Practical Guidance
-
-### Before Scraping: Checklist
-
-```python
-LEGAL_CHECKLIST = {
-    "read_tos": "Did you read the Terms of Service?",
-    "robots_txt": "Does robots.txt allow your access?",
-    "public_data": "Is the data publicly accessible?",
-    "login_required": "Did you need to log in?",
-    "commercial_use": "Is this for commercial purposes?",
-    "republishing": "Will you republish the data?",
-    "competing": "Are you competing with the site?",
-    "rate_respect": "Will you respect server resources?",
-    "purpose": "What's your legitimate purpose?",
-}
-```
-
-### Low-Risk Scraping
-
-```python
-# ✅ Generally safer:
-safe_practices = {
-    "public_data": True,
-    "no_login": True,
-    "personal_use": True,
-    "no_republish": True,
-    "respectful_rate": True,
-    "follows_robots": True,
-    "minimal_volume": True,
-}
-```
-
-### Higher-Risk Activities
-
-```python
-# ⚠️ Consider carefully:
-risky_activities = {
-    "commercial_scraping": "May need legal review",
-    "logged_in_scraping": "ToS likely violated",
-    "mass_republishing": "Copyright concerns",
-    "competing_service": "Highest legal risk",
-    "ignoring_blocks": "Active evasion = bad",
-}
-```
+- ToS explicitly prohibits + enforced
+- Login required to access data
+- Competing service using the data
+- Personal/proprietary data
+- Received cease-and-desist
+- Site actively blocks you
 
 ---
 
-## When ToS Might Not Apply
+## Reading ToS Strategically
 
-### Arguments Against Enforcement
+### Key Sections to Check
 
-1. **Browsewrap vs Clickwrap**
-   - Clickwrap: User explicitly agrees (more enforceable)
-   - Browsewrap: Terms exist but no explicit agreement (less enforceable)
-
-2. **Reasonable Notice**
-   - Were terms clearly visible?
-   - Did user have real opportunity to read?
-
-3. **Unconscionability**
-   - Were terms unreasonably one-sided?
-   - Was there meaningful choice?
-
-4. **Public Interest**
-   - Research purposes
-   - Journalism
-   - Accessibility
-
-### Not Legal Advice
-
+```python
+def analyze_tos(tos_text):
+    """Find scraping-relevant sections in ToS."""
+    
+    keywords = {
+        'scraping_terms': [
+            'scrape', 'scraping', 'crawl', 'crawler', 'spider',
+            'harvest', 'data mining', 'automated', 'bot', 'robot',
+            'programmatic access', 'bulk download'
+        ],
+        'data_terms': [
+            'collect', 'gather', 'aggregate', 'compile',
+            'download', 'copy', 'reproduce'
+        ],
+        'prohibition_terms': [
+            'not permitted', 'prohibited', 'forbidden',
+            'may not', 'shall not', 'must not', 'agree not to'
+        ],
+        'exception_terms': [
+            'unless', 'except', 'permitted', 'authorized',
+            'written consent', 'prior approval'
+        ]
+    }
+    
+    findings = {}
+    for category, terms in keywords.items():
+        for term in terms:
+            if term.lower() in tos_text.lower():
+                # Find surrounding context
+                # ...
+                pass
+    
+    return findings
 ```
-⚠️ DISCLAIMER
 
-This document provides general information, not legal advice.
-Laws vary by jurisdiction and change over time.
-Consult a qualified attorney for specific situations.
-```
+### Questions to Answer
+
+1. Does it explicitly mention scraping/crawling?
+2. Does it prohibit automated access?
+3. Does it restrict data collection?
+4. Are there exceptions for research/personal use?
+5. What are the stated consequences?
+6. Is it browse-wrap or click-wrap?
+7. When was it last updated?
 
 ---
 
-## Best Practices
+## Notable ToS Examples
 
-### Be Transparent
+### LinkedIn
 
-```python
-# Identify yourself
-USER_AGENT = "MyResearchBot/1.0 (+https://mysite.com/bot; contact@mysite.com)"
+```
+"You agree that you will not:
 
-# This allows sites to:
-# - Know who you are
-# - Contact you if issues
-# - Potentially whitelist you
+...scrape or copy profiles and information of others through 
+any means (including crawlers, browser plugins and add-ons, 
+and any other technology or manual work)..."
 ```
 
-### Document Your Purpose
+**Enforcement**: Actively sues scrapers, uses aggressive detection.
 
-Keep records of:
-- Why you're scraping
-- What data you're collecting
-- How you'll use it
-- Steps taken to be respectful
+### Twitter/X
 
-### Respond to Requests
+```
+"You may not do any of the following while accessing or using 
+the Services: access, search, or create accounts for the Services 
+by any means other than our publicly supported interfaces..."
+```
 
-If site contacts you:
-- Take it seriously
-- Respond professionally
-- Stop if asked (usually safest)
-- Consult lawyer if commercial/important
+**Enforcement**: API rate limits, account bans, occasional legal action.
 
-### Consider Alternatives
+### Amazon
 
-Before scraping, check for:
-- Official APIs
-- Data downloads
-- Research partnerships
-- Licensing agreements
+```
+"This license does not include any... collection and use of any 
+product listings, descriptions, or prices; any derivative use of 
+any Amazon Service or its contents; any downloading, copying, or 
+other use of account information for the benefit of any third party..."
+```
+
+**Enforcement**: Technical blocks, account termination.
+
+### Wikipedia
+
+```
+"You are free to: Share, copy and redistribute the material in 
+any medium or format; Adapt, remix, transform, and build upon the 
+material for any purpose, even commercially."
+```
+
+**Enforcement**: Generally permissive, honors CC license.
+
+---
+
+## Risk Mitigation Strategies
+
+### Technical Measures
 
 ```python
-ALTERNATIVES = {
-    "official_api": "Twitter API, Reddit API, etc.",
-    "bulk_downloads": "Wikipedia dumps, Common Crawl",
-    "data_providers": "Data.world, Kaggle datasets",
-    "partnerships": "Academic data access programs",
+# Behave more like a legitimate user
+measures = {
+    'rate_limit': True,           # Don't overwhelm servers
+    'identify_bot': True,         # Use honest User-Agent
+    'respect_robots': True,       # Follow robots.txt
+    'cache_responses': True,      # Don't re-request
+    'off_peak_hours': True,       # Scrape during low traffic
 }
 ```
 
+### Business Measures
+
+```
+1. Document legitimate purpose
+2. Avoid competing directly with source
+3. Don't scrape personal data
+4. Add value, don't just copy
+5. Consider reaching out for permission
+6. Have legal review if commercial
+```
+
+### If You Receive Cease-and-Desist
+
+```
+1. Stop scraping immediately
+2. Document what you've done
+3. Do not respond without legal counsel
+4. Review the claims carefully
+5. Consider negotiation
+6. Preserve evidence of good faith
+```
+
 ---
 
-## Case-by-Case Analysis
+## Alternatives to Risky Scraping
 
-### Scenario 1: Price Monitoring
+### Official Channels
 
-```
-Situation: Track competitor prices for personal shopping
-ToS: Prohibits automated access
-Risk: LOW (personal use, public data)
-Recommendation: Proceed cautiously, low volume
-```
+| Option | Description |
+|--------|-------------|
+| **API** | Many sites offer official APIs |
+| **Data licensing** | Buy/license data directly |
+| **Partnerships** | Business development agreement |
+| **RSS feeds** | Legitimate syndication |
+| **Data providers** | Third parties who have agreements |
 
-### Scenario 2: Research Project
-
-```
-Situation: Academic study of social media trends
-ToS: Prohibits scraping
-Risk: MEDIUM (research exception may apply)
-Recommendation: Check for research API, IRB approval
-```
-
-### Scenario 3: Commercial Aggregator
+### Safe Data Sources
 
 ```
-Situation: Build competing price comparison site
-ToS: Explicitly prohibits
-Risk: HIGH (commercial + competing)
-Recommendation: Seek legal advice, consider licensing
-```
-
-### Scenario 4: News Archive
-
-```
-Situation: Archive news articles for posterity
-ToS: Prohibits copying content
-Risk: MEDIUM (public interest vs copyright)
-Recommendation: Use Internet Archive instead
+Public Data Sources:
+├── Government databases
+├── Open data initiatives
+├── Academic datasets
+├── Creative Commons content
+├── Official APIs
+└── Data marketplaces
 ```
 
 ---
 
 ## Summary
 
-| Aspect | Consideration |
-|--------|---------------|
-| **ToS Binding?** | Usually yes if you used the site |
-| **Enforceable?** | Depends on notice and agreement type |
-| **Criminal Risk?** | Low for pure ToS violation (post-Van Buren) |
-| **Civil Risk** | Real, especially for commercial use |
-| **Best Practice** | Read ToS, assess risk, be respectful |
+| Situation | Risk Level | Recommendation |
+|-----------|------------|----------------|
+| Public data, no ToS restriction | Low | Proceed carefully |
+| ToS prohibits but not enforced | Medium | Consider alternatives |
+| ToS prohibits + actively enforced | High | Avoid or get permission |
+| Account required + ToS prohibits | High | Use official API |
+| Personal/proprietary data | Very High | Do not scrape |
 
 ### Key Takeaways
 
-1. **ToS matter** - Even if rarely enforced, they're legal agreements
-2. **Public ≠ Permitted** - Public data can still have ToS restrictions
-3. **Purpose matters** - Research vs commercial makes a difference
-4. **Blocks matter** - Circumventing technical measures increases risk
-5. **When in doubt** - Consult a lawyer for commercial projects
+1. **Read the ToS** before scraping
+2. **Assess enforceability** - browse-wrap vs click-wrap
+3. **Consider the context** - public vs authenticated
+4. **Document good faith** - rate limiting, identification
+5. **Seek alternatives** - APIs, licensing, partnerships
+6. **Consult legal counsel** for commercial projects
 
 ---
 
-*Next: [03_cfaa_legal_risks.md](03_cfaa_legal_risks.md) - Understanding the Computer Fraud and Abuse Act*
+*Next: [03_data_privacy_laws.md](03_data_privacy_laws.md) - GDPR, CCPA, and data protection*
