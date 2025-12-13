@@ -1,153 +1,149 @@
 # 02_ant_farms
 
-> **Organized Collections of Site-Specific Scrapers**
+> **Platform-Specific Scrapers Organized by Industry**
 
-Ant farms are organized colonies of scrapers designed for specific website categories. Each farm contains ready-to-use ants for common sites in that category.
+This section contains specialized scrapers for specific websites and platforms, organized by industry vertical.
 
 ---
 
-## 🏗️ Farm Structure
+## 📁 Directory Structure
 
 ```
 02_ant_farms/
+├── 00_social/                    # Social media platforms
+│   ├── 00_linkedin/              # LinkedIn profiles & companies
+│   ├── 01_facebook/              # Facebook pages
+│   ├── 02_twitter_x/             # Twitter/X data
+│   ├── 03_instagram/             # Instagram profiles
+│   └── 04_tiktok/                # TikTok data
 │
-├── 00_social/              Social media & community platforms
-│   ├── twitter_ant.py
-│   ├── linkedin_ant.py
-│   └── reddit_ant.py
+├── 01_business_directories/      # Business listings
+│   ├── 00_google_maps/           # Google Maps/Places
+│   ├── 01_yelp/                  # Yelp reviews
+│   ├── 02_bbb/                   # Better Business Bureau
+│   ├── 03_yellow_pages/          # Yellow Pages
+│   ├── 04_white_pages/           # White Pages
+│   └── 05_crunchbase/            # Startup data
 │
-├── 01_business_directories/ Business listings & directories
-│   ├── yelp_ant.py
-│   ├── yellowpages_ant.py
-│   └── google_maps_ant.py
+├── 02_ecommerce/                 # E-commerce platforms
+│   ├── 00_amazon/                # Amazon products
+│   ├── 01_ebay/                  # eBay listings
+│   ├── 02_walmart/               # Walmart products
+│   ├── 03_shopify_stores/        # Generic Shopify
+│   ├── generic_shopify_ant.py    # Shopify scraper
+│   └── product_schema_ant.py     # Product extractor
 │
-├── 02_ecommerce/           Online stores & marketplaces
-│   ├── amazon_ant.py
-│   ├── ebay_ant.py
-│   └── shopify_ant.py
+├── 03_real_estate/               # Property listings
+│   ├── 00_zillow/                # Zillow properties
+│   ├── 01_redfin/                # Redfin listings
+│   ├── 02_realtor/               # Realtor.com
+│   └── 03_apartments/            # Apartments.com
 │
-├── 03_real_estate/         Property listings
-│   ├── zillow_ant.py
-│   ├── realtor_ant.py
-│   └── redfin_ant.py
+├── 04_jobs/                      # Job boards
+│   ├── 00_indeed/                # Indeed jobs
+│   ├── 01_linkedin_jobs/         # LinkedIn Jobs
+│   ├── 02_glassdoor/             # Glassdoor listings
+│   ├── 03_monster/               # Monster jobs
+│   └── generic_job_ant.py        # Generic job scraper
 │
-├── 04_jobs/                Job boards & career sites
-│   ├── indeed_ant.py
-│   ├── linkedin_jobs_ant.py
-│   └── glassdoor_ant.py
+├── 05_news_media/                # News & content
+│   ├── 00_news_sites/            # General news
+│   ├── 01_rss_feeds/             # RSS aggregation
+│   ├── 02_press_releases/        # PR newswires
+│   ├── article_ant.py            # Article extractor
+│   └── rss_ant.py                # RSS parser
 │
-├── 05_news_media/          News sites & publications
-│   ├── news_generic_ant.py
-│   ├── rss_ant.py
-│   └── article_ant.py
+├── 06_government_public/         # Public records ✅
+│   ├── 00_sec_edgar/             # SEC filings (legal!)
+│   ├── 01_court_records/         # Court documents
+│   ├── 02_property_records/      # Property tax records
+│   └── 03_business_registrations/# Secretary of State
 │
-├── 06_government_public/   Government & public data
-│   ├── sec_ant.py
-│   ├── patents_ant.py
-│   └── court_records_ant.py
-│
-└── 07_data_aggregators/    Data aggregation sites
-    ├── crunchbase_ant.py
-    ├── similarweb_ant.py
-    └── statista_ant.py
+└── 07_data_aggregators/          # Reference data
+    ├── 00_wikipedia/             # Wikipedia
+    ├── 01_imdb/                  # Movies/TV
+    └── 02_open_data_portals/     # Government data
 ```
 
 ---
 
-## 📚 Farm Categories
+## ⚠️ Legal Status by Platform
 
-| Farm | Description | Difficulty | Key Challenges |
-|------|-------------|------------|----------------|
-| [00_social](00_social/) | Social media platforms | Hard | Auth, rate limits, ToS |
-| [01_business_directories](01_business_directories/) | Business listings | Medium | Pagination, geo-targeting |
-| [02_ecommerce](02_ecommerce/) | Online stores | Medium-Hard | JS rendering, anti-bot |
-| [03_real_estate](03_real_estate/) | Property listings | Medium | Dynamic content, maps |
-| [04_jobs](04_jobs/) | Job boards | Medium | Pagination, deduplication |
-| [05_news_media](05_news_media/) | News and articles | Easy-Medium | Paywalls, structure varies |
-| [06_government_public](06_government_public/) | Public records | Easy-Medium | Old systems, PDFs |
-| [07_data_aggregators](07_data_aggregators/) | Data platforms | Hard | Paywalls, authentication |
+### ✅ Generally Safe
+| Platform | Notes |
+|----------|-------|
+| SEC EDGAR | Public domain government data |
+| Wikipedia | CC-licensed, API available |
+| Open Data Portals | Public records |
+| RSS Feeds | Designed for syndication |
 
----
+### ⚠️ Use Official APIs
+| Platform | Recommendation |
+|----------|----------------|
+| Google Maps | Use Places API |
+| Yelp | Use Fusion API |
+| Twitter/X | Use official API |
+| Crunchbase | Use their API |
 
-## 🎯 Using Ant Farms
-
-### Quick Start
-
-```python
-# Import a specific ant
-from ant_farms.ecommerce import AmazonProductAnt
-
-# Initialize and use
-ant = AmazonProductAnt()
-result = ant.scrape('https://amazon.com/dp/B08N5WRWNW')
-
-print(result.data)
-# {'title': 'Product Name', 'price': 99.99, 'rating': 4.5, ...}
-```
-
-### Customizing Farm Ants
-
-```python
-from ant_farms.ecommerce import AmazonProductAnt
-
-class MyAmazonAnt(AmazonProductAnt):
-    # Add custom fields
-    additional_selectors = {
-        'brand': '#bylineInfo',
-        'delivery': '#delivery-message',
-    }
-    
-    # Override extraction
-    def extract(self, soup):
-        data = super().extract(soup)
-        data['custom_field'] = self.safe_extract('#my-field', soup)
-        return data
-```
+### 🚫 High Risk
+| Platform | Warning |
+|----------|---------|
+| LinkedIn | Actively sues scrapers |
+| Facebook | Aggressive enforcement |
+| Amazon | Strong anti-bot measures |
 
 ---
 
-## ⚠️ Important Notes
+## 🎯 Quick Start
 
-### Legal & Ethical Considerations
-
-Each farm README includes:
-- robots.txt status for target sites
-- ToS implications
-- Rate limit recommendations
-- Known legal precedents
-
-**Always review before scraping!**
-
-### Site Changes
-
-Websites change frequently. Ants may need updating:
-
+### Business Directory Search
 ```python
-# Check if ant is working
-ant = AmazonProductAnt()
-result = ant.test()
+from ant_farms.business_directories.google_maps import GoogleMapsAnt
 
-if not result.success:
-    print(f"Ant needs updating: {result.error}")
+ant = GoogleMapsAnt()
+results = ant.search("coffee shops", "Seattle, WA")
 ```
 
-### Contributing
+### SEC Filings (Legal!)
+```python
+from ant_farms.government_public.sec_edgar import EDGARAnt
 
-When adding new ants:
+ant = EDGARAnt(email="you@email.com")
+company = ant.get_company_info("AAPL")  # Apple
+```
 
-1. Follow the naming convention: `{site}_ant.py`
-2. Include comprehensive selectors
-3. Add tests for common URLs
-4. Document any authentication requirements
-5. Note rate limit recommendations
+### Job Listings
+```python
+from ant_farms.jobs import GenericJobAnt
+
+ant = GenericJobAnt()
+jobs = ant.scrape("https://careers.example.com/jobs")
+```
+
+---
+
+## 📊 Implemented Scrapers
+
+| Category | Platform | Status | File |
+|----------|----------|--------|------|
+| Business | Google Maps | ✅ | `google_maps_ant.py` |
+| Business | Yelp | ✅ | `yelp_ant.py` |
+| Business | Crunchbase | ✅ | `crunchbase_ant.py` |
+| Social | LinkedIn | ✅ | `linkedin_public_ant.py` |
+| Real Estate | Zillow | ✅ | `zillow_ant.py` |
+| Government | SEC EDGAR | ✅ | `edgar_ant.py` |
+| E-commerce | Shopify | ✅ | `generic_shopify_ant.py` |
+| Jobs | Generic | ✅ | `generic_job_ant.py` |
+| News | Articles | ✅ | `article_ant.py` |
+| News | RSS | ✅ | `rss_ant.py` |
 
 ---
 
 ## 🔗 Related Sections
 
-- [01_ant_anatomy/](../01_ant_anatomy/) - Base ant classes and patterns
-- [03_enrichment_pipelines/](../03_enrichment_pipelines/) - Data processing
-- [06_utils/](../06_utils/) - Shared utilities
+- **[00_foundations/](../00_foundations/)** - Core concepts & legal
+- **[01_ant_anatomy/](../01_ant_anatomy/)** - Base scraper patterns
+- **[06_utils/](../06_utils/)** - Shared utilities
 
 ---
 
