@@ -1,1 +1,0 @@
-# Amazon Ant Farm
