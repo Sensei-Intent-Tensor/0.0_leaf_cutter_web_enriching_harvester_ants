@@ -1,135 +1,147 @@
 # Cookies, Sessions & State
 
-> **Maintaining Identity Across Requests**
+> **How Websites Remember You (And How to Maintain That Memory)**
 
-HTTP is stateless—each request is independent. Cookies and sessions allow websites to remember who you are. Understanding these is critical for scraping authenticated content or navigating multi-step flows.
-
----
-
-## The Stateless Problem
-
-```
-Request 1: GET /login    → Server: "Who are you?"
-Request 2: POST /login   → Server: "OK, logged in... but I'll forget"
-Request 3: GET /dashboard → Server: "Who are you?" (forgot already!)
-```
-
-Without state management, every request starts fresh.
+HTTP is stateless—each request is independent. Cookies and sessions solve this by maintaining state across requests. For scrapers, understanding this is essential for authenticated scraping and maintaining context.
 
 ---
 
-## 1. Cookies
-
-### What Are Cookies?
-
-Small pieces of data that:
-1. Server sends to client via `Set-Cookie` header
-2. Client stores locally
-3. Client sends back via `Cookie` header on subsequent requests
+## Why State Matters
 
 ```
-First Request:
-Client ──────────────────────────────────▶ Server
-        GET /login
+Without State:
+Request 1: Login ✓
+Request 2: "Who are you?" (Forgot you logged in)
+Request 3: "Who are you?" (Still doesn't know)
 
-Response:
-Client ◀────────────────────────────────── Server
-        Set-Cookie: session_id=abc123
+With State (Cookies):
+Request 1: Login ✓ → Server sends cookie
+Request 2: Include cookie → "Welcome back!"
+Request 3: Include cookie → "Still logged in!"
+```
+
+---
+
+## 1. Cookies Fundamentals
+
+### What Is a Cookie?
+
+A cookie is a small piece of data stored by the client (browser/scraper) and sent with every subsequent request to the same domain.
+
+```
+Server Response:
+Set-Cookie: session_id=abc123; Path=/; HttpOnly; Secure
 
 Subsequent Requests:
-Client ──────────────────────────────────▶ Server
-        GET /dashboard
-        Cookie: session_id=abc123
-                    ↑
-        Server knows who you are!
+Cookie: session_id=abc123
 ```
 
 ### Cookie Anatomy
 
 ```
-Set-Cookie: session_id=abc123; Path=/; Domain=.example.com; Expires=Thu, 01 Jan 2025 00:00:00 GMT; Secure; HttpOnly; SameSite=Lax
+Set-Cookie: name=value; Domain=.example.com; Path=/; Expires=Wed, 15 Jan 2025 12:00:00 GMT; Secure; HttpOnly; SameSite=Lax
+           │     │      │                     │      │                                      │       │        │
+           │     │      │                     │      │                                      │       │        └─ CSRF protection
+           │     │      │                     │      │                                      │       └─ No JavaScript access
+           │     │      │                     │      │                                      └─ HTTPS only
+           │     │      │                     │      └─ When it expires
+           │     │      │                     └─ Which paths receive it
+           │     │      └─ Which domains receive it
+           │     └─ The cookie value
+           └─ The cookie name
 ```
 
-| Attribute | Purpose | Example |
-|-----------|---------|---------|
-| **Name=Value** | The cookie data | `session_id=abc123` |
-| **Path** | URL paths where cookie is sent | `/` (all paths) |
-| **Domain** | Domains where cookie is sent | `.example.com` (includes subdomains) |
-| **Expires** | When cookie expires | `Thu, 01 Jan 2025 00:00:00 GMT` |
-| **Max-Age** | Seconds until expiry | `86400` (1 day) |
-| **Secure** | HTTPS only | (flag, no value) |
-| **HttpOnly** | JavaScript can't access | (flag, no value) |
-| **SameSite** | CSRF protection | `Strict`, `Lax`, `None` |
+### Cookie Attributes
 
-### Cookie Types
-
-| Type | Lifetime | Use |
-|------|----------|-----|
-| **Session Cookie** | Until browser closes | Temporary login |
-| **Persistent Cookie** | Has Expires/Max-Age | "Remember me" |
-| **First-Party** | Same domain as page | Normal site cookies |
-| **Third-Party** | Different domain | Tracking, ads |
+| Attribute | Purpose | Scraping Impact |
+|-----------|---------|-----------------|
+| `Domain` | Which domains receive the cookie | Must match target domain |
+| `Path` | Which paths receive the cookie | Usually `/` (all paths) |
+| `Expires/Max-Age` | When cookie expires | Need to refresh if expired |
+| `Secure` | HTTPS only | Use HTTPS |
+| `HttpOnly` | No JavaScript access | Doesn't affect scrapers |
+| `SameSite` | CSRF protection | Mostly doesn't affect scrapers |
 
 ---
 
-## 2. Managing Cookies in Python
+## 2. Session Management
+
+### How Sessions Work
+
+```
+┌─────────────┐                           ┌─────────────┐
+│   CLIENT    │                           │   SERVER    │
+│             │                           │             │
+│  Login ─────┼──────────────────────────▶│             │
+│             │                           │  Create     │
+│             │                           │  Session    │
+│             │◀──────────────────────────┼─ Set-Cookie │
+│  Store      │   session_id=abc123       │  session_id │
+│  Cookie     │                           │             │
+│             │                           │             │
+│  Request ───┼──────────────────────────▶│             │
+│  + Cookie   │   Cookie: session_id=     │  Look up    │
+│             │   abc123                  │  Session    │
+│             │◀──────────────────────────┼─ "Welcome!" │
+└─────────────┘                           └─────────────┘
+```
+
+### Session vs. Persistent Cookies
+
+| Type | Expires | Use Case |
+|------|---------|----------|
+| **Session Cookie** | When browser closes | Login sessions |
+| **Persistent Cookie** | Specific date/time | "Remember me" |
+
+```python
+# Session cookie (no Expires)
+Set-Cookie: session_id=abc123
+
+# Persistent cookie (has Expires)
+Set-Cookie: remember_me=xyz789; Expires=Wed, 15 Jan 2025 12:00:00 GMT
+```
+
+---
+
+## 3. Cookie Handling in Python
 
 ### Using requests.Session
-
-The `Session` object automatically handles cookies:
 
 ```python
 import requests
 
-# Create session - persists cookies across requests
+# Create a session - automatically handles cookies
 session = requests.Session()
 
-# First request - server sets cookies
-response = session.get("https://example.com/")
-# Set-Cookie headers are automatically stored
+# First request - server may set cookies
+response = session.get("https://example.com")
+print(session.cookies)  # Shows received cookies
 
-# Subsequent requests - cookies sent automatically
-response = session.get("https://example.com/dashboard")
-# Cookie header included automatically
-
-# View current cookies
-print(session.cookies.get_dict())
-# {'session_id': 'abc123', 'user_pref': 'dark'}
+# Subsequent requests automatically include cookies
+response = session.get("https://example.com/protected")
 ```
 
 ### Manual Cookie Management
 
 ```python
-# Set cookies manually
-session.cookies.set("custom_cookie", "value123")
-session.cookies.set("another", "value", domain="example.com", path="/")
+# Inspect cookies
+for cookie in session.cookies:
+    print(f"{cookie.name}: {cookie.value}")
+    print(f"  Domain: {cookie.domain}")
+    print(f"  Path: {cookie.path}")
+    print(f"  Expires: {cookie.expires}")
 
-# Get specific cookie
-session_id = session.cookies.get("session_id")
+# Add cookies manually
+session.cookies.set("custom_cookie", "value", domain="example.com")
 
-# Delete cookie
-del session.cookies["unwanted_cookie"]
+# Send cookies with a single request
+response = requests.get(url, cookies={"session": "abc123"})
 
-# Clear all cookies
+# Clear cookies
 session.cookies.clear()
 ```
 
-### Passing Cookies Directly
-
-```python
-# Without session - pass cookies dict
-response = requests.get(url, cookies={
-    "session_id": "abc123",
-    "user_id": "456"
-})
-
-# From browser - copy cookie string
-cookie_string = "session_id=abc123; user_id=456; theme=dark"
-cookies = dict(item.split("=") for item in cookie_string.split("; "))
-response = requests.get(url, cookies=cookies)
-```
-
-### Exporting/Importing Cookies
+### Cookie Persistence
 
 ```python
 import pickle
@@ -138,67 +150,16 @@ import pickle
 with open("cookies.pkl", "wb") as f:
     pickle.dump(session.cookies, f)
 
-# Load cookies from file
+# Load cookies later
 with open("cookies.pkl", "rb") as f:
     session.cookies.update(pickle.load(f))
 ```
 
-### Cookie Jar Operations
-
-```python
-from requests.cookies import RequestsCookieJar
-
-# Create cookie jar
-jar = RequestsCookieJar()
-jar.set("session", "abc123", domain="example.com", path="/")
-
-# Use with session
-session.cookies = jar
-
-# Iterate cookies
-for cookie in session.cookies:
-    print(f"{cookie.name}: {cookie.value}")
-    print(f"  Domain: {cookie.domain}")
-    print(f"  Path: {cookie.path}")
-    print(f"  Expires: {cookie.expires}")
-```
-
 ---
 
-## 3. Sessions
+## 4. Authentication Flows
 
-### What Is a Session?
-
-A session is server-side storage linked to a client via session ID (usually in a cookie).
-
-```
-┌─────────────┐              ┌─────────────────────────────┐
-│   Client    │              │          Server             │
-│             │              │                             │
-│ Cookie:     │              │  Session Storage:           │
-│ session_id= │─────────────▶│  abc123: {                  │
-│ abc123      │              │    user_id: 42,             │
-│             │              │    cart: [...],             │
-│             │              │    logged_in: true          │
-│             │              │  }                          │
-└─────────────┘              └─────────────────────────────┘
-```
-
-### Session vs Cookies
-
-| Aspect | Cookies | Sessions |
-|--------|---------|----------|
-| **Storage** | Client (browser) | Server |
-| **Size Limit** | ~4KB per cookie | Unlimited |
-| **Security** | Visible to client | Hidden on server |
-| **Data** | Limited, strings | Any data structure |
-| **Identifier** | Cookie itself | Session ID in cookie |
-
----
-
-## 4. Login Flows
-
-### Basic Login Pattern
+### Basic Login Flow
 
 ```python
 import requests
@@ -211,313 +172,163 @@ login_page = session.get("https://example.com/login")
 soup = BeautifulSoup(login_page.text, "html.parser")
 
 # Step 2: Extract CSRF token (if present)
-csrf_token = soup.find("input", {"name": "csrf_token"})["value"]
+csrf_token = soup.select_one("input[name='csrf_token']")
+csrf_value = csrf_token["value"] if csrf_token else None
 
 # Step 3: Submit login form
-login_response = session.post(
+login_data = {
+    "username": "myuser",
+    "password": "mypass",
+}
+if csrf_value:
+    login_data["csrf_token"] = csrf_value
+
+response = session.post(
     "https://example.com/login",
-    data={
-        "username": "myuser",
-        "password": "mypassword",
-        "csrf_token": csrf_token
-    },
-    headers={
-        "Referer": "https://example.com/login"
-    }
+    data=login_data,
+    headers={"Referer": "https://example.com/login"}
 )
 
 # Step 4: Verify login succeeded
-if "dashboard" in login_response.url or "Welcome" in login_response.text:
+if "dashboard" in response.url or "Welcome" in response.text:
     print("Login successful!")
+    # Session cookies now contain authentication
 else:
     print("Login failed!")
 
-# Step 5: Access protected pages (session maintains auth)
-dashboard = session.get("https://example.com/dashboard")
+# Step 5: Access protected content
+protected = session.get("https://example.com/protected-page")
 ```
 
-### Login Flow Variations
-
-#### JSON API Login
+### OAuth / Token-Based Auth
 
 ```python
+# Some sites use tokens instead of cookies
 session = requests.Session()
 
-# Login via JSON API
-response = session.post(
-    "https://example.com/api/auth/login",
-    json={
-        "email": "user@example.com",
-        "password": "password123"
-    },
-    headers={"Content-Type": "application/json"}
-)
-
-# Token might be in response body (not cookie)
-data = response.json()
-access_token = data.get("access_token")
+# Login returns a token
+login_response = session.post("https://api.example.com/login", json={
+    "username": "user",
+    "password": "pass"
+})
+token = login_response.json()["access_token"]
 
 # Use token in subsequent requests
 session.headers.update({
-    "Authorization": f"Bearer {access_token}"
+    "Authorization": f"Bearer {token}"
 })
+
+# Now all requests include the token
+data = session.get("https://api.example.com/data").json()
 ```
 
-#### OAuth/Token-Based
+### Two-Factor Authentication
 
 ```python
-# Step 1: Get authorization URL
-auth_url = f"https://example.com/oauth/authorize?client_id={client_id}&redirect_uri={redirect_uri}"
+# Step 1: Initial login
+response = session.post("https://example.com/login", data={
+    "username": "user",
+    "password": "pass"
+})
 
-# Step 2: User authorizes (manual step or browser automation)
-# Receive callback with authorization code
+# Step 2: Check if 2FA required
+if "verification" in response.url:
+    # Need to handle 2FA
+    code = input("Enter 2FA code: ")  # Or from authenticator API
+    response = session.post("https://example.com/verify", data={
+        "code": code
+    })
 
-# Step 3: Exchange code for token
-token_response = requests.post(
-    "https://example.com/oauth/token",
-    data={
-        "grant_type": "authorization_code",
-        "code": auth_code,
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "redirect_uri": redirect_uri
-    }
-)
-
-access_token = token_response.json()["access_token"]
-```
-
-#### Two-Factor Authentication
-
-```python
-session = requests.Session()
-
-# Step 1: Normal login
-session.post(login_url, data={"username": "user", "password": "pass"})
-
-# Step 2: Server requests 2FA
-# May redirect to /2fa or return specific response
-
-# Step 3: Submit 2FA code (from authenticator app, SMS, email)
-session.post(
-    "https://example.com/2fa/verify",
-    data={"code": "123456"}  # User provides this
-)
-
-# Now fully authenticated
+# Step 3: Continue with authenticated session
 ```
 
 ---
 
-## 5. State Management Patterns
-
-### Pattern 1: Session Per Scrape
-
-```python
-def scrape_site():
-    session = requests.Session()
-    
-    # Login
-    login(session)
-    
-    # Scrape with authenticated session
-    for url in urls:
-        response = session.get(url)
-        process(response)
-    
-    # Session discarded after function
-```
-
-### Pattern 2: Persistent Session
-
-```python
-import pickle
-import os
-
-SESSION_FILE = "session.pkl"
-
-def get_session():
-    session = requests.Session()
-    
-    # Load existing session if available
-    if os.path.exists(SESSION_FILE):
-        with open(SESSION_FILE, "rb") as f:
-            session.cookies.update(pickle.load(f))
-    
-    return session
-
-def save_session(session):
-    with open(SESSION_FILE, "wb") as f:
-        pickle.dump(session.cookies, f)
-
-# Usage
-session = get_session()
-if not is_logged_in(session):
-    login(session)
-    save_session(session)
-
-# Scrape
-data = scrape(session)
-save_session(session)  # Save updated cookies
-```
-
-### Pattern 3: Session Validation
-
-```python
-def is_session_valid(session):
-    """Check if session is still authenticated."""
-    response = session.get("https://example.com/api/me")
-    
-    # Various ways to check
-    if response.status_code == 401:
-        return False
-    if "login" in response.url:
-        return False
-    if "error" in response.json():
-        return False
-    
-    return True
-
-def ensure_logged_in(session, credentials):
-    """Ensure session is authenticated, login if needed."""
-    if not is_session_valid(session):
-        login(session, credentials)
-    return session
-```
-
-### Pattern 4: Session Pool
-
-```python
-import random
-from threading import Lock
-
-class SessionPool:
-    def __init__(self, credentials_list):
-        self.sessions = []
-        self.lock = Lock()
-        
-        # Create authenticated session for each account
-        for creds in credentials_list:
-            session = requests.Session()
-            login(session, creds)
-            self.sessions.append(session)
-    
-    def get_session(self):
-        """Get a random session from pool."""
-        with self.lock:
-            return random.choice(self.sessions)
-
-# Usage
-pool = SessionPool([
-    {"username": "user1", "password": "pass1"},
-    {"username": "user2", "password": "pass2"},
-])
-
-response = pool.get_session().get(url)
-```
-
----
-
-## 6. Common Challenges
+## 5. State Challenges
 
 ### Challenge: CSRF Tokens
 
+Many forms require a CSRF token that changes per session/page.
+
 ```python
 def get_csrf_token(session, url):
-    """Extract CSRF token from page."""
+    """Extract CSRF token from a page."""
     response = session.get(url)
     soup = BeautifulSoup(response.text, "html.parser")
     
-    # Try common patterns
-    csrf = None
+    # Try common CSRF field names
+    for name in ["csrf_token", "_token", "csrfmiddlewaretoken", "authenticity_token"]:
+        token = soup.select_one(f"input[name='{name}']")
+        if token:
+            return token["value"]
     
-    # Hidden input field
-    csrf_input = soup.find("input", {"name": ["csrf_token", "_token", "authenticity_token", "csrfmiddlewaretoken"]})
-    if csrf_input:
-        csrf = csrf_input.get("value")
+    # Try meta tag
+    meta = soup.select_one("meta[name='csrf-token']")
+    if meta:
+        return meta["content"]
     
-    # Meta tag
-    csrf_meta = soup.find("meta", {"name": ["csrf-token", "_csrf"]})
-    if csrf_meta:
-        csrf = csrf_meta.get("content")
-    
-    # In JavaScript (regex fallback)
-    if not csrf:
-        import re
-        match = re.search(r'csrf[_-]?token["\']?\s*[:=]\s*["\']([^"\']+)["\']', response.text, re.I)
-        if match:
-            csrf = match.group(1)
-    
-    return csrf
+    return None
+
+# Usage
+csrf = get_csrf_token(session, "https://example.com/form")
+session.post("https://example.com/submit", data={
+    "csrf_token": csrf,
+    "field1": "value1"
+})
 ```
 
 ### Challenge: Session Expiration
 
+Sessions expire. Handle gracefully:
+
 ```python
-class ResilientSession:
-    def __init__(self, credentials):
-        self.credentials = credentials
+class AuthenticatedScraper:
+    def __init__(self, username, password):
+        self.username = username
+        self.password = password
         self.session = requests.Session()
         self.login()
     
     def login(self):
         # Perform login
-        pass
+        self.session.post("https://example.com/login", data={
+            "username": self.username,
+            "password": self.password
+        })
     
-    def get(self, url, **kwargs):
-        response = self.session.get(url, **kwargs)
+    def fetch(self, url):
+        response = self.session.get(url)
         
         # Check if session expired
-        if self._is_session_expired(response):
+        if response.status_code == 401 or "login" in response.url:
+            print("Session expired, re-logging in...")
             self.login()
-            response = self.session.get(url, **kwargs)
+            response = self.session.get(url)
         
         return response
-    
-    def _is_session_expired(self, response):
-        return response.status_code == 401 or "login" in response.url
 ```
 
-### Challenge: Cookies Across Subdomains
+### Challenge: Multiple Cookies
+
+Some sites use multiple cookies for different purposes:
 
 ```python
-# Cookie set for .example.com works on:
-# - example.com
-# - www.example.com
-# - api.example.com
+# After login, inspect all cookies
+for cookie in session.cookies:
+    print(f"{cookie.name}: {cookie.value[:20]}...")
 
-# May need to handle separately
-session.cookies.set("token", "abc", domain=".example.com")
+# Typical cookie setup:
+# - session_id: Main session identifier
+# - csrf_token: CSRF protection
+# - preferences: User preferences
+# - tracking_id: Analytics
 ```
 
 ---
 
-## 7. Browser Cookie Extraction
+## 6. Cookies in Headless Browsers
 
-### From Browser DevTools
-
-1. Open DevTools → Application → Cookies
-2. Copy cookie values
-3. Use in scraper
-
-### Using browser_cookie3
-
-```python
-import browser_cookie3
-
-# Get cookies from Chrome
-chrome_cookies = browser_cookie3.chrome(domain_name=".example.com")
-
-# Get cookies from Firefox
-firefox_cookies = browser_cookie3.firefox(domain_name=".example.com")
-
-# Use with requests
-session = requests.Session()
-session.cookies = chrome_cookies
-response = session.get("https://example.com/protected")
-```
-
-### From Playwright/Puppeteer
+### Playwright Cookie Management
 
 ```python
 from playwright.sync_api import sync_playwright
@@ -527,86 +338,174 @@ with sync_playwright() as p:
     context = browser.new_context()
     page = context.new_page()
     
-    # Navigate and login
+    # Navigate and let browser handle cookies naturally
     page.goto("https://example.com/login")
     page.fill("#username", "user")
     page.fill("#password", "pass")
     page.click("#submit")
     
-    # Extract cookies
+    # Get all cookies
     cookies = context.cookies()
-    
-    # Convert to requests format
-    session = requests.Session()
     for cookie in cookies:
-        session.cookies.set(
-            cookie["name"],
-            cookie["value"],
-            domain=cookie["domain"],
-            path=cookie["path"]
-        )
+        print(f"{cookie['name']}: {cookie['value']}")
     
-    browser.close()
+    # Save cookies for later
+    import json
+    with open("cookies.json", "w") as f:
+        json.dump(cookies, f)
+    
+    # Load cookies in new session
+    context2 = browser.new_context()
+    with open("cookies.json") as f:
+        context2.add_cookies(json.load(f))
+```
 
-# Now use session for fast requests
+### Transfer Cookies Between Playwright and Requests
+
+```python
+from playwright.sync_api import sync_playwright
+import requests
+
+# Get cookies from Playwright
+with sync_playwright() as p:
+    browser = p.chromium.launch()
+    page = browser.new_page()
+    page.goto("https://example.com/login")
+    # ... perform login ...
+    
+    playwright_cookies = page.context.cookies()
+
+# Transfer to requests session
+session = requests.Session()
+for cookie in playwright_cookies:
+    session.cookies.set(
+        cookie["name"],
+        cookie["value"],
+        domain=cookie.get("domain", ""),
+        path=cookie.get("path", "/")
+    )
+
+# Now use requests for faster scraping
 response = session.get("https://example.com/data")
 ```
 
 ---
 
-## 8. Debugging Sessions
+## 7. Debugging Cookie Issues
 
-### Inspect Session State
+### Inspect What's Being Sent
 
 ```python
-# View all cookies
-print(session.cookies.get_dict())
+response = session.get(url)
 
-# View cookie details
-for cookie in session.cookies:
-    print(f"Name: {cookie.name}")
-    print(f"Value: {cookie.value}")
-    print(f"Domain: {cookie.domain}")
-    print(f"Path: {cookie.path}")
-    print(f"Secure: {cookie.secure}")
-    print(f"Expires: {cookie.expires}")
-    print("---")
+# What cookies were sent?
+print("Request cookies:", response.request.headers.get("Cookie"))
+
+# What cookies were received?
+print("Response Set-Cookie:", response.headers.get("Set-Cookie"))
+
+# Current session cookies
+print("Session cookies:", dict(session.cookies))
 ```
 
-### Compare with Browser
+### Common Issues
+
+| Problem | Symptom | Solution |
+|---------|---------|----------|
+| Missing cookies | Always redirected to login | Check if cookies are being stored |
+| Wrong domain | Cookies not sent | Verify cookie domain matches request domain |
+| Expired cookies | Intermittent auth failures | Refresh session periodically |
+| Missing CSRF | Form submission fails | Extract fresh token before each POST |
+| Secure cookie over HTTP | Cookie not sent | Use HTTPS |
+| Path mismatch | Cookie not sent to some URLs | Check cookie path attribute |
+
+### Enable Debug Logging
 
 ```python
-# Get what browser sends
-browser_cookies = "session_id=abc; user_id=123"  # From DevTools
+import logging
+import http.client
 
-# Get what session has
-session_cookies = "; ".join(f"{k}={v}" for k, v in session.cookies.get_dict().items())
+# See all HTTP traffic including cookies
+http.client.HTTPConnection.debuglevel = 1
+logging.basicConfig()
+logging.getLogger().setLevel(logging.DEBUG)
+requests_log = logging.getLogger("requests.packages.urllib3")
+requests_log.setLevel(logging.DEBUG)
+requests_log.propagate = True
 
-print(f"Browser: {browser_cookies}")
-print(f"Session: {session_cookies}")
+# Now make request - will show all headers
+session.get("https://example.com")
+```
+
+---
+
+## 8. Best Practices
+
+### Do's
+
+```python
+# ✅ Use sessions for related requests
+session = requests.Session()
+
+# ✅ Persist cookies for long-running scrapers
+save_cookies(session.cookies)
+
+# ✅ Handle session expiration gracefully
+if is_logged_out(response):
+    relogin()
+
+# ✅ Extract CSRF tokens fresh before each form submission
+csrf = get_csrf_from_page(session, form_url)
+```
+
+### Don'ts
+
+```python
+# ❌ Don't create new sessions for each request
+for url in urls:
+    requests.get(url)  # Loses cookies each time
+
+# ❌ Don't hardcode session cookies that expire
+cookies = {"session": "old_hardcoded_value"}  # Will expire
+
+# ❌ Don't ignore Set-Cookie headers
+response = requests.get(url)  # Not using session, cookies lost
+
+# ❌ Don't share sessions across different accounts
+session.login("user1")
+session.login("user2")  # Overwrites user1's session
 ```
 
 ---
 
 ## Summary
 
-| Concept | Purpose | Key Points |
-|---------|---------|------------|
-| **Cookies** | Store state on client | Sent via headers, various attributes |
-| **Sessions** | Server-side state | Linked to client via session cookie |
-| **requests.Session** | Persist state in Python | Handles cookies automatically |
-| **Login Flow** | Authenticate scraper | Get page → Extract CSRF → POST creds |
-| **Token Auth** | Alternative to cookies | Store token, send in header |
+| Concept | Purpose | Scraper Handling |
+|---------|---------|------------------|
+| **Cookie** | Store state client-side | Use `requests.Session()` |
+| **Session** | Maintain logged-in state | Persist and refresh as needed |
+| **CSRF Token** | Prevent forged requests | Extract from page before POST |
+| **Set-Cookie** | Server sends new cookies | Handled automatically by Session |
+| **Cookie Domain** | Control which sites receive cookie | Must match target domain |
 
-### Best Practices
+### Quick Reference
 
-1. **Always use `requests.Session()`** for multi-request scraping
-2. **Extract CSRF tokens** before form submissions
-3. **Check login success** before proceeding
-4. **Handle session expiration** gracefully
-5. **Persist sessions** for long-running scrapers
-6. **Use browser extraction** for complex auth flows
+```python
+# Basic session usage
+session = requests.Session()
+session.get(url)  # Cookies handled automatically
+
+# Check cookies
+print(session.cookies.get_dict())
+
+# Add cookie manually
+session.cookies.set("name", "value", domain=".example.com")
+
+# Save/load cookies
+pickle.dump(session.cookies, open("cookies.pkl", "wb"))
+session.cookies.update(pickle.load(open("cookies.pkl", "rb")))
+```
 
 ---
 
-*Next: [04_headers_user_agents.md](04_headers_user_agents.md) - Crafting convincing request headers*
+*Next: [04_headers_user_agents.md](04_headers_user_agents.md) - Crafting headers that don't get you blocked*
