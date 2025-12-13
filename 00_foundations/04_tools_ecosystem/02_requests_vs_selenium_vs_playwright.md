@@ -1,1 +1,0 @@
-# 02_requests_vs_selenium_vs_playwright.md
